@@ -124,6 +124,31 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     }
 
     /**
+     * Append a list of key-value pairs to the end of the map.
+     *
+     * @param keyValueList the list of key-value's to be appended (must be non-null and non-empty)
+     * @param valueFactory the factory instance that will wrap the values before insertion (may not be null)
+     */
+    public <F extends ValueFactory<V>, L extends KeyValueList<KeyValue<K,?>>> void append(L keyValueList, F valueFactory) {
+        boolean isFinished;
+        keyValueList.sort();
+        DataUtils.checkArgument(!keyValueList.isEmpty(), "The keyValueList must have at least one KeyValue");
+        K firstKey = keyValueList.get(0).getKey();
+        Iterator<KeyValue<K,?>> i = keyValueList.iterator();
+        synchronized (this) {
+        	DataUtils.checkArgument(higherKey(firstKey) == null, "first key may not collate before highest existing key");
+		    do {
+		    	beforeWrite();
+		    	long v = writeVersion;
+		        Page p = root.copy(v);
+		        p = splitRootIfNeeded(p, v);
+		        isFinished = put(p, v, null, i, valueFactory);
+		        newRoot(p);
+	        } while (!isFinished && i.hasNext());
+        }
+    }
+
+    /**
      * Add or replace a key-value pair in a branch.
      *
      * @param root the root page
@@ -206,6 +231,68 @@ public class MVMap<K, V> extends AbstractMap<K, V>
         Object result = put(c, writeVersion, key, value);
         p.setChild(index, c);
         return result;
+    }
+
+    /**
+     * Add a sorted key-value list (to end of map).
+     *
+     * @param page the page
+     * @param writeVersion the write version
+     * @param initialKeyValue the first key to be inserted, followed by the rest of the list or the entire list if null
+     * @param keyValueListIterator an <code>Iterator</code> on the key-value list
+     * @param valueFactory the factory instance to wrap the key-list values before insertion
+     * @return <code>true</code> if finished; otherwise re-invoke this method after unwinding recursion in order to continue processing
+     */
+    protected boolean put(Page page, long writeVersion, KeyValue<K,?> initialKeyValue, Iterator<KeyValue<K,?>> keyValueListIterator, ValueFactory<V> valueFactory) {
+        boolean isFinished = false;
+        if (initialKeyValue == null) {
+	        initialKeyValue = keyValueListIterator.next();
+        }
+        int index = page.binarySearch(initialKeyValue.getKey());
+        if (page.isLeaf()) {
+        	// at the leaf; time to insert
+            if (index < 0) {
+            	// not found; this is the insertion point
+                index = -index - 1;
+            	page.insertLeaf(index++, initialKeyValue.getKey(), valueFactory.newInstance(initialKeyValue.getValue()));
+                while (keyValueListIterator.hasNext()) {
+                    if (page.getMemory() > store.getPageSplitSize() && page.getKeyCount() > 1) {
+                    	// indicate split needed; we are not yet done
+                    	return false;
+                    }
+                    KeyValue<K,?> keyValue = keyValueListIterator.next();;
+                	page.insertLeaf(index++, keyValue.getKey(), valueFactory.newInstance(keyValue.getValue()));
+                }
+                return true;
+            }
+            // key was found; this cannot happen
+            throw DataUtils.newIllegalStateException(
+                    DataUtils.ERROR_INTERNAL,
+                    "Leaf page for this key should not exist");
+        }
+        // p is a node, not a leaf
+        if (index < 0) {
+            index = -index - 1;
+        } else {
+        	index++;
+        }
+        // read (if necessary) and make a copy of the child page at this index
+        Page childPage = page.getChildPage(index).copy(writeVersion);
+        if (childPage.getMemory() > store.getPageSplitSize() && childPage.getKeyCount() > 1) {
+            // child page too full; split on the way down
+            int midPoint = childPage.getKeyCount() / 2;
+            Object midKey = childPage.getKey(midPoint);
+            Page splitPage = childPage.split(midPoint);
+            page.setChild(index, splitPage);
+            page.insertNode(index, midKey, childPage);
+            // now we are not sure where to add
+            isFinished = put(page, writeVersion, initialKeyValue, keyValueListIterator, valueFactory);
+        } else {
+        	// child page has room
+	        isFinished = put(childPage, writeVersion, initialKeyValue, keyValueListIterator, valueFactory);
+	        page.setChild(index, childPage);
+        }
+        return isFinished;
     }
 
     /**
@@ -1256,6 +1343,23 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     @Override
     public String toString() {
         return asString(null);
+    }
+
+    public static interface ValueFactory<V> {
+    	V newInstance(Object value);
+    }
+
+    public static interface KeyValueFactory<KV> {
+    	KeyValue<?, ?> newInstance(KV keyValue);
+    }
+
+    public static interface KeyValue<K,V> {
+    	K getKey();
+    	V getValue();
+    }
+
+    public static interface KeyValueList<KV extends KeyValue<?, ?>> extends List<KV> {
+    	void sort();
     }
 
     /**
