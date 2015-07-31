@@ -16,6 +16,9 @@ import java.util.Map.Entry;
 import org.h2.mvstore.Cursor;
 import org.h2.mvstore.DataUtils;
 import org.h2.mvstore.MVMap;
+import org.h2.mvstore.MVMap.KeyValue;
+import org.h2.mvstore.MVMap.KeyValueList;
+import org.h2.mvstore.MVMap.ValueFactory;
 import org.h2.mvstore.MVStore;
 import org.h2.mvstore.WriteBuffer;
 import org.h2.mvstore.type.DataType;
@@ -1021,6 +1024,15 @@ public class TransactionStore {
             return (V) (oldValue == null ? null : oldValue.value);
         }
 
+        /**
+         * Add the values for the given keys in the key-value list, without adding an undo log entry.
+         *
+         * @param keyValueList the list of key-value pairs to be appended
+         */
+        public <L extends KeyValueList<KeyValue<K,?>>> void appendCommitted(L keyValueList) {
+            map.append(keyValueList, new VersionedValueFactory());
+        }
+
         private V set(K key, V value) {
             transaction.checkNotClosed();
             V old = get(key);
@@ -1571,6 +1583,16 @@ public class TransactionStore {
         public DataType getKeyType() {
             return map.getKeyType();
         }
+
+    }
+
+    static class VersionedValueFactory implements ValueFactory<VersionedValue> {
+
+    	public VersionedValue newInstance(Object value) {
+    		VersionedValue v = new VersionedValue();
+    		v.value = value;
+    		return v;
+    	}
 
     }
 
