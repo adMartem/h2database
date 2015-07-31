@@ -126,6 +126,14 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     /**
      * Append a list of key-value pairs to the end of the map.
      *
+     * This is intended to be used to initially populate a map as efficiently as possible, such as in the case of bulk loading
+     * a map migrated from some other data source. It may be used to append key-value pairs to an existing map, however, if the
+     * keys to be appended collate higher than any existing key in the map.
+     *
+     * Prior to insertion, the list is sorted in ascending key order and the insertions made at the leaf level until a split is needed
+     * in the leaf page.  At that time, the insertion is suspended, the recursion bubbling up to this level, and then the process is repeated
+     * using the un-inserted remainder of the list entries.  When no entries remain, this method returns.
+     *
      * @param keyValueList the list of key-value's to be appended (must be non-null and non-empty)
      * @param valueFactory the factory instance that will wrap the values before insertion (may not be null)
      */
@@ -260,7 +268,16 @@ public class MVMap<K, V> extends AbstractMap<K, V>
                     	// indicate split needed; we are not yet done
                     	return false;
                     }
-                    KeyValue<K,?> keyValue = keyValueListIterator.next();;
+                    KeyValue<K,?> keyValue = keyValueListIterator.next();
+                    if (MVStore.ASSERT) {
+                    	if (compare(keyValue.getKey(), initialKeyValue.getKey()) < 0) {
+                    		throw DataUtils.newIllegalStateException(
+                                    DataUtils.ERROR_INTERNAL,
+                                    "key-value list not sorted in key order");
+                    	} else {
+                    		initialKeyValue = keyValue;
+                    	}
+                    }
                 	page.insertLeaf(index++, keyValue.getKey(), valueFactory.newInstance(keyValue.getValue()));
                 }
                 return true;
