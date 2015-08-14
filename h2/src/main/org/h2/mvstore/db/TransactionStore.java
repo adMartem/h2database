@@ -1027,10 +1027,10 @@ public class TransactionStore {
         /**
          * Add the values for the given keys in the key-value list, without adding an undo log entry.
          *
-         * @param keyValueList the list of key-value pairs to be appended
+         * @param keyValueList the list of key-value pairs to be added
          */
-        public <L extends KeyValueList<KeyValue<K,?>>> void appendCommitted(L keyValueList) {
-            map.append(keyValueList, new VersionedValueFactory());
+        public <L extends KeyValueList<KeyValue<K,?>>> void putCommitted(L keyValueList) {
+            map.put(keyValueList, new VersionedValueFactory());
         }
 
         private V set(K key, V value) {
