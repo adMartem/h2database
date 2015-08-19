@@ -128,34 +128,35 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     }
 
     /**
-     * Append a list of key-value pairs to the end of the map.
-     *
+     * Adds a list of unique key-value pairs to the map.
+     * <p>
      * This is intended to be used to initially populate a map as efficiently as possible, such as in the case of bulk loading
-     * a map migrated from some other data source. It may be used to append key-value pairs to an existing map, however, if the
-     * keys to be appended collate higher than any existing key in the map.
+     * a map migrated from some other data source. It may be used to add key-value pairs to an existing map, however, if none of the
+     * keys to be appended already exist in the map.
+     * <p>
+     * Prior to insertion, the list may be sorted in ascending or descending key order to maximize the efficiency of the insertion and minimize the number of write versions produced.
+     * Consecutive insertions are made at the leaf level until a split is needed,
+     * the key is outside constraining values for that leaf page, or the insertion list is exhausted.
+     * If the list is not completely processed, the process is repeated
+     * after returning to this method where the write version is advanced and the tree traversed anew.
      *
-     * Prior to insertion, the list is sorted in ascending key order and the insertions made at the leaf level until a split is needed
-     * in the leaf page.  At that time, the insertion is suspended, the recursion bubbling up to this level, and then the process is repeated
-     * using the un-inserted remainder of the list entries.  When no entries remain, this method returns.
-     *
-     * @param keyValueList the list of key-value's to be appended (must be non-null and non-empty)
-     * @param valueFactory the factory instance that will wrap the values before insertion (may not be null)
+     * @param keyValueList the list of key-value's to be added (must be non-null and non-empty)
+     * @param valueFactory the factory instance that will wrap the values before insertion (null if wrapping not needed)
      */
-    @SuppressWarnings("unchecked")
-	public <F extends ValueFactory<V>, L extends KeyValueList<KeyValue<K,?>>> void put(L keyValueList, F valueFactory) {
+    public <F extends ValueFactory<V>, L extends KeyValueList<KeyValue<K,?>>> void bulkAdd(L keyValueList, F valueFactory) {
         boolean isFinished;
         DataUtils.checkArgument(!keyValueList.isEmpty(), "The keyValueList must have at least one KeyValue");
         ListIterator<KeyValue<K,?>> i = keyValueList.listIterator();
-        synchronized (this) {
-		    do {
+	    do {
+	        synchronized (this) {
 		    	beforeWrite();
 		    	long v = writeVersion;
 		        Page p = root.copy(v);
 		        p = splitRootIfNeeded(p, v);
-		        isFinished = put(p, v, null, null, i, valueFactory);
+		        isFinished = addContiguous(p, v, null, null, null, i, valueFactory);
 		        newRoot(p);
-	        } while (!isFinished && i.hasNext());
-        }
+	        }
+        } while (!isFinished && i.hasNext());
     }
 
     /**
@@ -244,17 +245,19 @@ public class MVMap<K, V> extends AbstractMap<K, V>
     }
 
     /**
-     * Add a sorted key-value list (to end of map).
-     *
-     * @param page the page
-     * @param writeVersion the write version
-     * @param initialKeyValue the first key to be inserted, followed by the rest of the list or the entire list if null
-     * @param keyValueListIterator an <code>Iterator</code> on the key-value list
-     * @param valueFactory the factory instance to wrap the key-list values before insertion
-     * @return <code>true</code> if finished; otherwise re-invoke this method after unwinding recursion in order to continue processing
+     * From the provided list, find the first key leaf page and add as many key-values to the leaf as practicable.
+     * <p>
+     * @param page the page we are passing through
+     * @param writeVersion the write version to use
+     * @param initialKeyValue the first key to be added, followed by the balance of the list, or the entire list if null
+     * @param lowerLimitKey is the key that constrains the addition to greater than this value (null if no lower constraint)
+     * @param upperLimitKey is the key that constrains the addition to less than this value (null if no upper constraint)
+     * @param keyValueListIterator an <code>Iterator</code> on the key-value list to be added
+     * @param valueFactory the factory instance to wrap the key-list values before insertion (or null if no wrapping desired)
+     * @return <code>true</code> if list has been fully added, otherwise <code>false</code> to re-start after reaching the top-level method
      */
     @SuppressWarnings("unchecked")
-	protected boolean put(Page page, long writeVersion, KeyValue<K,?> initialKeyValue, K limitKey, ListIterator<KeyValue<K,?>> keyValueListIterator, ValueFactory<V> valueFactory) {
+	protected boolean addContiguous(Page page, long writeVersion, KeyValue<K,?> initialKeyValue, K lowerLimitKey, K upperLimitKey, ListIterator<KeyValue<K,?>> keyValueListIterator, ValueFactory<V> valueFactory) {
         boolean isFinished = false;
         if (initialKeyValue == null) {
 	        initialKeyValue = keyValueListIterator.next();
@@ -265,13 +268,11 @@ public class MVMap<K, V> extends AbstractMap<K, V>
             if (index < 0) {
             	// not found; this is the insertion point
                 index = -index - 1;
-                // index is the low key from search
-                if (page.getKeyCount() > index + 1) {
-                	// right-side neighbor; reset limitKey
-                	limitKey = (K) page.getKey(index + 1);
+                if (valueFactory != null) {
+                	page.insertLeaf(index, initialKeyValue.getKey(), valueFactory.newInstance(initialKeyValue.getValue()));
+                } else {
+                	page.insertLeaf(index, initialKeyValue.getKey(), initialKeyValue.getValue());
                 }
-                K lastKey = initialKeyValue.getKey();
-            	page.insertLeaf(index++, lastKey, valueFactory.newInstance(initialKeyValue.getValue()));
             	while (keyValueListIterator.hasNext()) {
                     if (page.getMemory() > store.getPageSplitSize() && page.getKeyCount() > 1) {
                     	// indicate split needed; we are not yet done
@@ -279,14 +280,31 @@ public class MVMap<K, V> extends AbstractMap<K, V>
                     }
                     KeyValue<K,?> keyValue = keyValueListIterator.next();
                     K thisKey = keyValue.getKey();
-                    if ((limitKey != null && ((compare(thisKey, limitKey) >= 0))) || (compare(thisKey, lastKey) < 0)) {
-                    	// this key is higher than limiting key or lower than the last key; forget this insertion and bubble to the top
+                    if (upperLimitKey != null && ((compare(thisKey, upperLimitKey) >= 0))) {
+                    	// this key is higher than limiting key; forget this insertion and bubble to the top
+                    	keyValueListIterator.previous();
+                    	return false;
+                    } else if ((lowerLimitKey != null && (compare(thisKey, lowerLimitKey) <= 0))) {
+                    	// this key lower than the limiting key; ; forget this insertion and bubble to the top
                     	keyValueListIterator.previous();
                     	return false;
                     }
-                    // key is in the interval between last key and the limit key
-                    page.insertLeaf(index++, thisKey, valueFactory.newInstance(keyValue.getValue()));
-                    lastKey = thisKey;
+                    // find the insertion point for this key
+                    index = page.binarySearch(thisKey);
+                    if (index < 0) {
+                    	index = -index - 1;
+                    } else {
+                        // key was found; this cannot happen
+                        throw DataUtils.newIllegalStateException(
+                                DataUtils.ERROR_INTERNAL,
+                                "Leaf page for this key should not exist");
+                    }
+                    // key is in the interval between lower and upper key limits and fits here
+                    if (valueFactory != null) {
+                    	page.insertLeaf(index, thisKey, valueFactory.newInstance(keyValue.getValue()));
+                    } else {
+                    	page.insertLeaf(index, thisKey, keyValue.getValue());
+                    }
                 }
                 return true;
             }
@@ -299,9 +317,20 @@ public class MVMap<K, V> extends AbstractMap<K, V>
         if (index < 0) {
             index = -index - 1;
         } else {
-        	index++;
+            // key was found; this cannot happen
+            throw DataUtils.newIllegalStateException(
+                    DataUtils.ERROR_INTERNAL,
+                    "Node containing this key should not exist");
         }
-        // read (if necessary) and make a copy of the child page at this index
+    	// adjust the limits if acceptable key value is further constrained
+        if (page.getKeyCount() > index) {
+        	// limit is next higher key
+        	upperLimitKey = (K) page.getKey(index);
+        }
+    	if (index > 0) {
+    		// limit is the lower key upper limit
+    		lowerLimitKey = (K) page.getKey(index - 1);
+    	}
         Page childPage = page.getChildPage(index).copy(writeVersion);
         if (childPage.getMemory() > store.getPageSplitSize() && childPage.getKeyCount() > 1) {
             // split on the way down
@@ -310,16 +339,11 @@ public class MVMap<K, V> extends AbstractMap<K, V>
             Page newChildPage = childPage.split(midPoint);
             page.setChild(index, newChildPage);
             page.insertNode(index, midKey, childPage);
-            // now we are not sure where to add; leave limit key unchanged (as we are re-doing this node)
-            isFinished = put(page, writeVersion, initialKeyValue, limitKey, keyValueListIterator, valueFactory);
+            // now we are not sure where to add
+            isFinished = addContiguous(page, writeVersion, initialKeyValue, lowerLimitKey, upperLimitKey, keyValueListIterator, valueFactory);
         } else {
         	// child page has room
-        	// limit key is a) next higher key after this index, b) current value if this index is last
-            if (index + 1 < page.getKeyCount() - 1) {
-            	// limit is next higher key
-            	limitKey = (K) page.getKey(index + 1);
-            }
-	        isFinished = put(childPage, writeVersion, initialKeyValue, limitKey, keyValueListIterator, valueFactory);
+	        isFinished = addContiguous(childPage, writeVersion, initialKeyValue, lowerLimitKey, upperLimitKey, keyValueListIterator, valueFactory);
 	        page.setChild(index, childPage);
         }
         return isFinished;
