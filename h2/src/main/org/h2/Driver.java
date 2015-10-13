@@ -9,15 +9,16 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.DriverPropertyInfo;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.util.Properties;
+import java.util.logging.Logger;
+
 import org.h2.engine.Constants;
 import org.h2.jdbc.JdbcConnection;
 import org.h2.message.DbException;
 import org.h2.upgrade.DbUpgrade;
 
-/*## Java 1.7 ##
 import java.util.logging.Logger;
-//*/
 
 /**
  * The database driver. An application should not use this class directly. The
@@ -207,5 +208,11 @@ public class Driver implements java.sql.Driver {
             // ignore
         }
     }
+
+	@Override
+	public Logger getParentLogger() throws SQLFeatureNotSupportedException {
+		// TODO Auto-generated method stub
+		return null;
+	}
 
 }
