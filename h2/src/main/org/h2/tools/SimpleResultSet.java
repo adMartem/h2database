@@ -2429,4 +2429,16 @@ public class SimpleResultSet implements ResultSet, ResultSetMetaData {
 
     }
 
+	@Override
+	public <T> T getObject(int columnIndex, Class<T> type) throws SQLException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public <T> T getObject(String columnLabel, Class<T> type) throws SQLException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
 }
