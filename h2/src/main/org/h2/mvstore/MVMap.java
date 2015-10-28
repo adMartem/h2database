@@ -5,7 +5,6 @@
  */
 package org.h2.mvstore;
 
-import java.io.IOException;
 import java.util.AbstractList;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
@@ -20,8 +19,6 @@ import java.util.concurrent.ConcurrentMap;
 import org.h2.mvstore.type.DataType;
 import org.h2.mvstore.type.ObjectDataType;
 import org.h2.util.New;
-
-import com.turrettech.p3cobol.lib.files.h2mv.P3KeyType;
 
 /**
  * A stored map.
