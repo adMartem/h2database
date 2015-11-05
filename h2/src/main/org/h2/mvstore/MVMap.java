@@ -21,8 +21,6 @@ import org.h2.mvstore.type.DataType;
 import org.h2.mvstore.type.ObjectDataType;
 import org.h2.util.New;
 
-import com.turrettech.p3cobol.lib.files.h2mv.P3KeyType;
-
 /**
  * A stored map.
  * <p>

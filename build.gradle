@@ -1,0 +1,125 @@
+
+
+apply plugin: 'java'
+apply plugin: 'eclipse'
+apply plugin: 'com.github.johnrengelman.shadow'
+apply plugin: 'maven'
+
+sourceSets {
+
+    main {
+        java {
+            srcDirs 'h2/src/main'
+        }
+        resources {
+            srcDirs 'h2/src/main'
+        }
+    }
+}
+    
+task compile {
+
+    sourceCompatibility = 1.7
+    targetCompatibility = 1.7
+
+    /**
+     * Fork the java compiler and use ECJ instead of javac
+     * Compile all sources as if they were UTF-8
+     */
+    compileJava {
+      options.encoding = 'UTF-8'
+      options.fork = true
+      options.warnings = false
+      doFirst {
+        println(this)
+        options.forkOptions.with {
+          executable = 'java'
+          jvmArgs = [ 
+            '-cp', configurations.ecj.asPath, 
+            'org.eclipse.jdt.internal.compiler.batch.Main'
+            ]
+        }
+      }
+    }
+
+    /**
+     * Fork the java compiler and use ECJ instead of javac
+     * Compile all sources as if they were UTF-8
+     */
+    compileTestJava {
+      options.encoding = 'UTF-8'
+      options.fork = true
+      options.warnings = false
+      doFirst {
+        println(this)
+        options.forkOptions.with {
+          executable = 'java'
+          jvmArgs = [ 
+            '-cp', configurations.ecj.asPath, 
+            'org.eclipse.jdt.internal.compiler.batch.Main' ]
+        }
+      }
+    }
+
+}
+
+
+jar {
+    manifest {
+        attributes 'Implementation-Title': 'P3/COBOL - H2 (MVCC) Subsystem', 
+        'Implementation-Version': version
+    }
+}
+
+/*
+shadowJar {
+    mergeServiceFiles()
+    relocate 'org.h2', 'com.turrettech.p3cobol.shadowed.h2'
+}
+*/
+
+sourceSets {
+    test {
+        java {
+            srcDirs 'h2/src/test'
+        }
+    }
+}
+
+test {
+    systemProperties 'property': 'value'
+}
+
+eclipse {
+    classpath {
+        sourceSets = [ sourceSets.main ]
+    }
+}
+
+uploadArchives {
+    repositories {
+       flatDir {
+           dirs 'repos'
+       }
+    }
+}
+
+dependencies {    
+    
+    compile('javax.servlet:javax.servlet-api:3.0.1') { transitive = false }
+    compile('org.apache.lucene:lucene-core:3.0.2') { transitive = false }
+    compile('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
+    compile('org.osgi:org.osgi.core:4.0.0') { transitive = false }
+    compile('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
+    compile('com.vividsolutions:jts:1.13') { transitive = false }    
+
+    /*testCompile group: 'junit', name: 'junit', version: '4.+'*/
+}
+
+/**
+ * Generates a wrapper for windows/linux that automatically downloads gradle
+ */
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.7'
+}
+
