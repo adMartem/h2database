@@ -15,10 +15,9 @@ sourceSets {
     }
 }
     
-task compile {
 
-    sourceCompatibility = 1.7
-    targetCompatibility = 1.7
+    
+task compile {
 
     /**
      * Fork the java compiler and use ECJ instead of javac
@@ -29,12 +28,12 @@ task compile {
       options.fork = true
       options.warnings = false
       doFirst {
-        println(this)
-        options.forkOptions.with {
+        options.forkOptions.with { 
           executable = 'java'
-          jvmArgs = [ 
-            '-cp', configurations.ecj.asPath, 
-            'org.eclipse.jdt.internal.compiler.batch.Main'
+          jvmArgs = [
+            '-cp', configurations.ecj.asPath,
+            'org.eclipse.jdt.internal.compiler.batch.Main',
+            '-7'
             ]
         }
       }
@@ -49,12 +48,13 @@ task compile {
       options.fork = true
       options.warnings = false
       doFirst {
-        println(this)
         options.forkOptions.with {
           executable = 'java'
           jvmArgs = [ 
             '-cp', configurations.ecj.asPath, 
-            'org.eclipse.jdt.internal.compiler.batch.Main' ]
+            'org.eclipse.jdt.internal.compiler.batch.Main',
+            '-7'
+          ]
         }
       }
     }
