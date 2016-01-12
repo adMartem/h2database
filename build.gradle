@@ -1,7 +1,13 @@
 apply plugin: 'java'
 apply plugin: 'eclipse'
-apply plugin: 'com.github.johnrengelman.shadow'
 apply plugin: 'maven'
+
+/*
+ * NOTE: H2 is compiled and shadowed as part of (source on classpath) the p3cobol parent project.  
+ * This project builds a full distribution jar of H2 that is compatible with the p3cobol shadowed 
+ * portion used for the indexed file storage manager.  This must be used if an H2 database is to
+ * be accessed by both the indexed file system and as a SQL database.
+ */ 
 
 sourceSets {
 
@@ -67,13 +73,6 @@ jar {
         'Implementation-Version': version
     }
 }
-
-/*
-shadowJar {
-    mergeServiceFiles()
-    relocate 'org.h2', 'com.turrettech.p3cobol.shadowed.h2'
-}
-*/
 
 sourceSets {
     test {
