@@ -85,10 +85,6 @@ sourceSets {
     }
 }
 
-test {
-    systemProperties 'property': 'value'
-}
-
 eclipse {
     classpath {
         sourceSets = [ sourceSets.main ]
