@@ -247,11 +247,11 @@ public class MVMap<K, V> extends AbstractMap<K, V>
      * <p>
      * @param page the page we are passing through
      * @param writeVersion the write version to use
-     * @param initialKeyValue the first key to be added, followed by the balance of the list, or the entire list if null
-     * @param lowerLimitKey is the key that constrains the addition to greater than this value (null if no lower constraint)
-     * @param upperLimitKey is the key that constrains the addition to less than this value (null if no upper constraint)
+     * @param initialKeyValue the first key to be added, followed by the balance of the list, or the entire list if <code>null</code>
+     * @param lowerLimitKey is the key that constrains the addition to greater than this value (<code>null</code> if no lower constraint)
+     * @param upperLimitKey is the key that constrains the addition to less than this value (<code>null</code> if no upper constraint)
      * @param keyValueListIterator an <code>Iterator</code> on the key-value list to be added
-     * @param valueFactory the factory instance to wrap the key-list values before insertion (or null if no wrapping desired)
+     * @param valueFactory the factory instance to wrap the key-list values before insertion (or <code>null</code> if no wrapping desired)
      * @return <code>true</code> if list has been fully added, otherwise <code>false</code> to re-start after reaching the top-level method
      */
     @SuppressWarnings("unchecked")
@@ -283,7 +283,7 @@ public class MVMap<K, V> extends AbstractMap<K, V>
                     	keyValueListIterator.previous();
                     	return false;
                     } else if ((lowerLimitKey != null && (compare(thisKey, lowerLimitKey) <= 0))) {
-                    	// this key lower than the limiting key; ; forget this insertion and bubble to the top
+                    	// this key lower than the limiting key; forget this insertion and bubble to the top
                     	keyValueListIterator.previous();
                     	return false;
                     }
@@ -1399,10 +1399,6 @@ public class MVMap<K, V> extends AbstractMap<K, V>
 
     public static interface ValueFactory<V> {
     	V newInstance(Object value);
-    }
-
-    public static interface KeyValueFactory<KV> {
-    	KeyValue<?, ?> newInstance(KV keyValue);
     }
 
     public static interface KeyValue<K,V> {
