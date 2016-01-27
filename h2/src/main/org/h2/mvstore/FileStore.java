@@ -6,6 +6,9 @@
 package org.h2.mvstore;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
@@ -14,7 +17,6 @@ import java.nio.channels.OverlappingFileLockException;
 import org.h2.mvstore.cache.FilePathCache;
 import org.h2.store.fs.FilePath;
 import org.h2.store.fs.FilePathDisk;
-import org.h2.store.fs.FilePathEncrypt;
 import org.h2.store.fs.FilePathNio;
 
 /**
@@ -152,9 +154,28 @@ public class FileStore {
         try {
             file = f.open(readOnly ? "r" : "rw");
             if (encryptionKey != null) {
-                byte[] key = FilePathEncrypt.getPasswordBytes(encryptionKey);
-                encryptedFile = file;
-                file = new FilePathEncrypt.FileEncrypt(fileName, key, file);
+            	boolean hasError = true;
+            	try {
+            		Class<?> filePathEncryptClass = Class.forName(FilePath.class.getPackage().getName() + ".FilePathEncrypt");
+            		Class<? extends FileChannel> fileEncryptClass = (Class<? extends FileChannel>)Class.forName(FilePath.class.getPackage().getName() + ".FilePathEncrypt$FileEncrypt");
+            		Method getPasswordBytesMethod = filePathEncryptClass.getDeclaredMethod("getPasswordBytes", char[].class);
+            		getPasswordBytesMethod.setAccessible(true);
+            		byte[] key = (byte[])getPasswordBytesMethod.invoke(null, encryptionKey);
+            		Constructor<? extends FileChannel> fileEncryptConstructor = fileEncryptClass.getConstructor(String.class, byte[].class, FileChannel.class);
+            		encryptedFile = file;
+            		file = fileEncryptConstructor.newInstance(fileName, key, file);
+            		hasError = false;
+            	} catch (ClassNotFoundException | NoSuchMethodException | SecurityException e) {
+            	} catch (IllegalAccessException e) {
+				} catch (IllegalArgumentException e) {
+				} catch (InvocationTargetException e) {
+				} catch (ClassCastException e) {
+				} catch (InstantiationException e) {
+				} finally {
+					if (hasError)
+						throw DataUtils.newIllegalArgumentException(
+			                    "Encryption not supported");
+				}
             }
             file = FilePathCache.wrap(file);
             try {
