@@ -25,6 +25,7 @@ import org.h2.command.ddl.AlterTableAlterColumn;
 import org.h2.command.ddl.AlterTableDropConstraint;
 import org.h2.command.ddl.AlterTableRename;
 import org.h2.command.ddl.AlterTableRenameColumn;
+import org.h2.command.ddl.AlterTableRenameConstraint;
 import org.h2.command.ddl.AlterUser;
 import org.h2.command.ddl.AlterView;
 import org.h2.command.ddl.Analyze;
@@ -4032,6 +4033,11 @@ public class Parser {
             if (readIf("VARYING")) {
                 original += " VARYING";
             }
+        } else if (readIf("TIMESTAMP")) {
+            if (readIf("WITH")) {
+                read("TIMEZONE");
+                original += " WITH TIMEZONE";
+            }
         } else {
             regular = true;
         }
@@ -5422,16 +5428,41 @@ public class Parser {
             }
             return command;
         } else if (readIf("RENAME")) {
-            read("TO");
-            String newName = readIdentifierWithSchema(table.getSchema()
-                    .getName());
-            checkSchema(table.getSchema());
-            AlterTableRename command = new AlterTableRename(session,
-                    getSchema());
-            command.setOldTable(table);
-            command.setNewTableName(newName);
-            command.setHidden(readIf("HIDDEN"));
-            return command;
+            if (readIf("COLUMN")) {
+                // PostgreSQL syntax
+                String columnName = readColumnIdentifier();
+                Column column = table.getColumn(columnName);
+                read("TO");
+                AlterTableRenameColumn command = new AlterTableRenameColumn(
+                        session);
+                command.setTable(table);
+                command.setColumn(column);
+                String newName = readColumnIdentifier();
+                command.setNewColumnName(newName);
+                return command;
+            } else if (readIf("CONSTRAINT")) {
+                String constraintName = readIdentifierWithSchema(table
+                        .getSchema().getName());
+                checkSchema(table.getSchema());
+                read("TO");
+                AlterTableRenameConstraint command = new AlterTableRenameConstraint(
+                        session, table.getSchema());
+                command.setConstraintName(constraintName);
+                String newName = readColumnIdentifier();
+                command.setNewConstraintName(newName);
+                return command;
+            } else {
+                read("TO");
+                String newName = readIdentifierWithSchema(table.getSchema()
+                        .getName());
+                checkSchema(table.getSchema());
+                AlterTableRename command = new AlterTableRename(session,
+                        getSchema());
+                command.setOldTable(table);
+                command.setNewTableName(newName);
+                command.setHidden(readIf("HIDDEN"));
+                return command;
+            }
         } else if (readIf("DROP")) {
             if (readIf("CONSTRAINT")) {
                 boolean ifExists = readIfExists(false);

@@ -21,7 +21,26 @@ Change Log
 
 <h2>Next Version (unreleased)</h2>
 <ul>
-<li>-
+<li>Issue #235: Anonymous SSL connections fail in many situations
+</li>
+<li>Fix race condition in FILE_LOCK=SOCKET, which could result in the watchdog thread not running  
+</li>
+<li>Experimental support for datatype TIMESTAMP WITH TIMEZONE
+</li>
+<li>Add support for ALTER TABLE ... RENAME CONSTRAINT .. TO ...
+</li>
+<li>Add support for PostgreSQL ALTER TABLE ... RENAME COLUMN .. TO ...
+</li>
+<li>Improve performance of cleaning up temp tables - patch from Eric Faulhaber.
+</li>
+<li>Fix bug where table locks were not dropped when the connection closed
+</li>
+<li>Fix extra CPU usage caused by query planner enhancement in 1.4.191
+</li>
+<li>improve performance of queries that use LIKE 'foo%' - 10x in the case of one of my queries
+</li>
+<li>Issue #231: Possible infinite loop when initializing the ObjectDataType class
+    when concurrently writing into MVStore.
 </li>
 </ul>
 
