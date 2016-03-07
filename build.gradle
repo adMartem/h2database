@@ -69,8 +69,10 @@ task compile {
 
 jar {
     manifest {
-        attributes 'Implementation-Title': 'P3/COBOL - H2 (MVCC) Subsystem', 
-        'Implementation-Version': version
+        attributes provider: 'Gradle Build',
+        'Implementation-Title': 'H2 (P3/COBOL) Database System', 
+        'Implementation-Version': version,
+        'Main-Class': 'org.h2.tools.Console'
     }
 }
 
