@@ -221,6 +221,7 @@ import org.h2.util.Profiler;
 import org.h2.util.StringUtils;
 import org.h2.util.Task;
 import org.h2.util.Utils;
+import org.testng.annotations.Test;
 
 /**
  * The main test application. JUnit is not used because loops are easier to
@@ -509,7 +510,10 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
             } else if ("timer".equals(args[0])) {
                 new TestTimer().runTest(test);
             }
-        } else {
+        } else if ("mvcc".equals(args[0])) {
+        	test.testMvcc();
+        }
+        else {
             test.testAll();
         }
         System.out.println(TestBase.formatTime(
@@ -573,6 +577,7 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         cipher = null;
         // splitFileSystem = true;
         test();
+        testMvcc();
         testUnit();
 
         networked = true;
@@ -789,6 +794,41 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         runAddedTests(1);
 
         afterTest();
+    }
+
+    @Test
+    public void testMvcc() {
+        // mvcc & row level locking
+        addTest(new TestMvcc1());
+        addTest(new TestMvcc2());
+        addTest(new TestMvcc3());
+        addTest(new TestMvcc4());
+        addTest(new TestMvccMultiThreaded());
+        addTest(new TestRowLocks());
+        testMvccUnit();
+    }
+
+    @Test
+    public void testMvccUnit() {
+        addTest(new TestCacheConcurrentLIRS());
+        addTest(new TestCacheLIRS());
+        addTest(new TestCacheLongKeyLIRS());
+        addTest(new TestConcurrentLinkedList());
+        addTest(new TestDataUtils());
+        addTest(new TestFreeSpace());
+        addTest(new TestKillProcessWhileWriting());
+        addTest(new TestMVRTree());
+        addTest(new TestMVStore());
+        addTest(new TestMVStoreBenchmark());
+        addTest(new TestMVStoreTool());
+        addTest(new TestMVTableEngine());
+        addTest(new TestObjectDataType());
+        addTest(new TestRandomMapOps());
+        addTest(new TestReorderWrites());
+        addTest(new TestSpinLock());
+        addTest(new TestStreamStore());
+        addTest(new TestTransactionStore());
+        runAddedTests();
     }
 
     private void testUnit() {

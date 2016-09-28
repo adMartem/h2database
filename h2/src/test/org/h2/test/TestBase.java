@@ -39,6 +39,7 @@ import org.h2.store.fs.FileUtils;
 import org.h2.test.utils.ProxyCodeGenerator;
 import org.h2.test.utils.ResultVerifier;
 import org.h2.tools.DeleteDbFiles;
+import org.testng.annotations.Test;
 
 /**
  * The base class for all tests.
