@@ -11,10 +11,8 @@ import java.io.PrintWriter;
 import java.io.Serializable;
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
 import java.util.Properties;
 import java.util.logging.Logger;
-
 import javax.naming.Reference;
 import javax.naming.Referenceable;
 import javax.naming.StringRefAddr;
@@ -27,10 +25,6 @@ import org.h2.Driver;
 import org.h2.jdbc.JdbcConnection;
 import org.h2.message.TraceObject;
 import org.h2.util.StringUtils;
-
-/*## Java 1.7 ##
-import java.util.logging.Logger;
-//*/
 
 /**
  * A data source for H2 database connections. It is a factory for XAConnection
@@ -66,7 +60,8 @@ import java.util.logging.Logger;
  * well; this may be a security problem in some cases.
  */
 public class JdbcDataSource extends TraceObject implements XADataSource,
-        DataSource, ConnectionPoolDataSource, Serializable, Referenceable {
+        DataSource, ConnectionPoolDataSource, Serializable, Referenceable,
+        JdbcDataSourceBackwardsCompat {
 
     private static final long serialVersionUID = 1288136338451857771L;
 
@@ -428,12 +423,10 @@ public class JdbcDataSource extends TraceObject implements XADataSource,
     /**
      * [Not supported]
      */
-/*## Java 1.7 ##
     @Override
     public Logger getParentLogger() {
         return null;
     }
-//*/
 
     /**
      * INTERNAL
@@ -442,11 +435,5 @@ public class JdbcDataSource extends TraceObject implements XADataSource,
     public String toString() {
         return getTraceObjectName() + ": url=" + url + " user=" + userName;
     }
-
-	@Override
-	public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-		// TODO Auto-generated method stub
-		return null;
-	}
 
 }

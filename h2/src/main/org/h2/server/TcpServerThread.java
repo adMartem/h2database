@@ -14,7 +14,6 @@ import java.io.StringWriter;
 import java.net.Socket;
 import java.sql.SQLException;
 import java.util.ArrayList;
-
 import org.h2.api.ErrorCode;
 import org.h2.command.Command;
 import org.h2.engine.ConnectionInfo;

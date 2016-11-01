@@ -279,6 +279,8 @@ public class MVStore {
 
     private long lastTimeAbsolute;
 
+    private long lastFreeUnusedChunks;
+
     /**
      * Create and open the store.
      *
@@ -324,6 +326,10 @@ public class MVStore {
         if (mb > 0) {
             CacheLongKeyLIRS.Config cc = new CacheLongKeyLIRS.Config();
             cc.maxMemory = mb * 1024L * 1024L;
+            o = config.get("cacheConcurrency");
+            if (o != null) {
+                cc.segmentCount = (Integer) o;
+            }
             cache = new CacheLongKeyLIRS<Page>(cc);
             cc.maxMemory /= 4;
             cacheChunkRef = new CacheLongKeyLIRS<PageChildren>(cc);
@@ -1051,13 +1057,19 @@ public class MVStore {
     }
 
     private long storeNowTry() {
-        freeUnusedChunks();
-
+        long time = getTimeSinceCreation();
+        int freeDelay = retentionTime / 10;
+        if (time >= lastFreeUnusedChunks + freeDelay) {
+            // set early in case it fails (out of memory or so)
+            lastFreeUnusedChunks = time;
+            freeUnusedChunks();
+            // set it here as well, to avoid calling it often if it was slow
+            lastFreeUnusedChunks = getTimeSinceCreation();
+        }
         int currentUnsavedPageCount = unsavedMemory;
         long storeVersion = currentStoreVersion;
         long version = ++currentVersion;
         setWriteVersion(version);
-        long time = getTimeSinceCreation();
         lastCommitTime = time;
         retainChunk = null;
 
@@ -1509,6 +1521,9 @@ public class MVStore {
      * @param minPercent the minimum percentage to save
      */
     private void shrinkFileIfPossible(int minPercent) {
+        if (fileStore.isReadOnly()) {
+            return;
+        }
         long end = getFileLengthInUse();
         long fileSize = fileStore.size();
         if (end >= fileSize) {
@@ -2656,6 +2671,15 @@ public class MVStore {
     }
 
     /**
+     * Whether the store is read-only.
+     *
+     * @return true if it is
+     */
+    public boolean isReadOnly() {
+        return fileStore == null ? false : fileStore.isReadOnly();
+    }
+
+    /**
      * A background writer thread to automatically store changes from time to
      * time.
      */
@@ -2804,6 +2828,17 @@ public class MVStore {
          */
         public Builder cacheSize(int mb) {
             return set("cacheSize", mb);
+        }
+
+        /**
+         * Set the read cache concurrency. The default is 16, meaning 16
+         * segments are used.
+         *
+         * @param concurrency the cache concurrency
+         * @return this
+         */
+        public Builder cacheConcurrency(int concurrency) {
+            return set("cacheConcurrency", concurrency);
         }
 
         /**

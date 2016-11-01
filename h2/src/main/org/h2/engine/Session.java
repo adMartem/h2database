@@ -78,6 +78,7 @@ public class Session extends SessionWithState {
     private int lockTimeout;
     private Value lastIdentity = ValueLong.get(0);
     private Value lastScopeIdentity = ValueLong.get(0);
+    private Value lastTriggerIdentity;
     private int firstUncommittedLog = Session.LOG_WRITTEN;
     private int firstUncommittedPos = Session.LOG_WRITTEN;
     private HashMap<String, Savepoint> savepoints;
@@ -649,6 +650,12 @@ public class Session extends SessionWithState {
     }
 
     private void removeTemporaryLobs(boolean onTimeout) {
+        if (SysProperties.CHECK2) {
+            if (this == getDatabase().getLobSession()
+                    && !Thread.holdsLock(this) && !Thread.holdsLock(getDatabase())) {
+                throw DbException.throwInternalError();
+            }
+        }
         if (temporaryLobs != null) {
             for (Value v : temporaryLobs) {
                 if (!v.isLinkedToTable()) {
@@ -809,7 +816,10 @@ public class Session extends SessionWithState {
         if (!closed) {
             try {
                 database.checkPowerOff();
+
+                // release any open table locks
                 rollback();
+
                 removeTemporaryLobs(false);
                 cleanTempTables(true);
                 undoLog.clear();
@@ -928,13 +938,13 @@ public class Session extends SessionWithState {
     private void cleanTempTables(boolean closeSession) {
         if (localTempTables != null && localTempTables.size() > 0) {
             synchronized (database) {
-                Iterator<Table> itr = localTempTables.values().iterator();
-                while (itr.hasNext()) {
-                    Table table = itr.next();
+                Iterator<Table> it = localTempTables.values().iterator();
+                while (it.hasNext()) {
+                    Table table = it.next();
                     if (closeSession || table.getOnCommitDrop()) {
                         modificationId++;
                         table.setModified();
-                        itr.remove();
+                        it.remove();
                         table.removeChildrenAndResources(this);
                         if (closeSession) {
                             // need to commit, otherwise recovery might
@@ -944,6 +954,11 @@ public class Session extends SessionWithState {
                     } else if (table.getOnCommitTruncate()) {
                         table.truncate(this);
                     }
+                }
+                // sometimes Table#removeChildrenAndResources
+                // will take the meta lock
+                if (closeSession) {
+                    database.unlockMeta(this);
                 }
             }
         }
@@ -984,6 +999,14 @@ public class Session extends SessionWithState {
 
     public Value getLastScopeIdentity() {
         return lastScopeIdentity;
+    }
+
+    public void setLastTriggerIdentity(Value last) {
+        this.lastTriggerIdentity = last;
+    }
+
+    public Value getLastTriggerIdentity() {
+        return lastTriggerIdentity;
     }
 
     /**
@@ -1207,8 +1230,15 @@ public class Session extends SessionWithState {
         this.currentSchemaName = schema.getName();
     }
 
+    @Override
     public String getCurrentSchemaName() {
         return currentSchemaName;
+    }
+
+    @Override
+    public void setCurrentSchemaName(String schemaName) {
+        Schema schema = database.getSchema(schemaName);
+        setCurrentSchema(schema);
     }
 
     /**
@@ -1633,6 +1663,11 @@ public class Session extends SessionWithState {
             }
             temporaryLobs.add(v);
         }
+    }
+
+    @Override
+    public boolean isRemote() {
+        return false;
     }
 
     /**

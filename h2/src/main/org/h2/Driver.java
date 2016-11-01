@@ -9,16 +9,12 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.DriverPropertyInfo;
 import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
 import java.util.Properties;
 import java.util.logging.Logger;
-
 import org.h2.engine.Constants;
 import org.h2.jdbc.JdbcConnection;
 import org.h2.message.DbException;
 import org.h2.upgrade.DbUpgrade;
-
-import java.util.logging.Logger;
 
 /**
  * The database driver. An application should not use this class directly. The
@@ -32,7 +28,7 @@ import java.util.logging.Logger;
  *      &quot;jdbc:h2:&tilde;/test&quot;, &quot;sa&quot;, &quot;sa&quot;);
  * </pre>
  */
-public class Driver implements java.sql.Driver {
+public class Driver implements java.sql.Driver, JdbcDriverBackwardsCompat {
 
     private static final Driver INSTANCE = new Driver();
     private static final String DEFAULT_URL = "jdbc:default:connection";
@@ -144,12 +140,10 @@ public class Driver implements java.sql.Driver {
     /**
      * [Not supported]
      */
-/*## Java 1.7 ##
     @Override
     public Logger getParentLogger() {
         return null;
     }
-//*/
 
     /**
      * INTERNAL
@@ -209,11 +203,5 @@ public class Driver implements java.sql.Driver {
             // ignore
         }
     }
-
-	@Override
-	public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-		// TODO Auto-generated method stub
-		return null;
-	}
 
 }

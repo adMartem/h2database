@@ -7,6 +7,8 @@ package org.h2.table;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+
+import org.h2.api.ErrorCode;
 import org.h2.command.Parser;
 import org.h2.command.dml.Select;
 import org.h2.engine.Right;
@@ -184,6 +186,7 @@ public class TableFilter implements ColumnResolver {
      * @param s the session
      * @param filters all joined table filters
      * @param filter the current table filter index
+     * @param allColumnsSet the set of all columns
      * @return the best plan item
      */
     public PlanItem getBestPlanItem(Session s, TableFilter[] filters, int filter,
@@ -195,8 +198,10 @@ public class TableFilter implements ColumnResolver {
         }
         if (indexConditions.size() == 0) {
             item1 = new PlanItem();
-            item1.setIndex(table.getScanIndex(s, null, filters, filter, sortOrder, allColumnsSet));
-            item1.cost = item1.getIndex().getCost(s, null, filters, filter, sortOrder, allColumnsSet);
+            item1.setIndex(table.getScanIndex(s, null, filters, filter,
+                    sortOrder, allColumnsSet));
+            item1.cost = item1.getIndex().getCost(s, null, filters, filter,
+                    sortOrder, allColumnsSet);
         }
         int len = table.getColumns().length;
         int[] masks = new int[len];
@@ -388,6 +393,7 @@ public class TableFilter implements ColumnResolver {
      *         lookups, {@code null} otherwise
      */
     public JoinBatch prepareJoinBatch(JoinBatch jb, TableFilter[] filters, int filter) {
+        assert filters[filter] == this;
         joinBatch = null;
         joinFilterId = -1;
         if (getTable().isView()) {
@@ -409,7 +415,7 @@ public class TableFilter implements ColumnResolver {
         // sub-query.
         IndexLookupBatch lookupBatch = null;
         if (jb == null && select != null && !isAlwaysTopTableFilter(filter)) {
-            lookupBatch = index.createLookupBatch(this);
+            lookupBatch = index.createLookupBatch(filters, filter);
             if (lookupBatch != null) {
                 jb = new JoinBatch(filter + 1, join);
             }
@@ -424,7 +430,7 @@ public class TableFilter implements ColumnResolver {
                 // createLookupBatch will be called at most once because jb can
                 // be created only if lookupBatch is already not null from the
                 // call above.
-                lookupBatch = index.createLookupBatch(this);
+                lookupBatch = index.createLookupBatch(filters, filter);
                 if (lookupBatch == null) {
                     // the index does not support lookup batching, need to fake
                     // it because we are not top
@@ -811,7 +817,14 @@ public class TableFilter implements ColumnResolver {
             }
             return buff.toString();
         }
-        buff.append(table.getSQL());
+        if (table.isView() && ((TableView) table).isRecursive()) {
+            buff.append(table.getName());
+        } else {
+            buff.append(table.getSQL());
+        }
+        if (table.isView() && ((TableView) table).isInvalid()) {
+            throw DbException.get(ErrorCode.VIEW_IS_INVALID_2, table.getName(), "not compiled");
+        }
         if (alias != null) {
             buff.append(' ').append(Parser.quoteIdentifier(alias));
         }

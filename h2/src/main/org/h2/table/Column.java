@@ -20,6 +20,7 @@ import org.h2.message.DbException;
 import org.h2.result.Row;
 import org.h2.schema.Schema;
 import org.h2.schema.Sequence;
+import org.h2.util.DateTimeUtils;
 import org.h2.util.MathUtils;
 import org.h2.util.StringUtils;
 import org.h2.value.DataType;
@@ -32,7 +33,6 @@ import org.h2.value.ValueString;
 import org.h2.value.ValueTime;
 import org.h2.value.ValueTimestamp;
 import org.h2.value.ValueTimestampTimeZone;
-import org.h2.value.ValueTimestampUtc;
 import org.h2.value.ValueUuid;
 
 /**
@@ -95,7 +95,7 @@ public class Column {
             int displaySize) {
         this.name = name;
         this.type = type;
-        if (precision == -1 && scale == -1 && displaySize == -1) {
+        if (precision == -1 && scale == -1 && displaySize == -1 && type != Value.UNKNOWN) {
             DataType dt = DataType.getDataType(type);
             precision = dt.defaultPrecision;
             scale = dt.defaultScale;
@@ -295,10 +295,11 @@ public class Column {
                         value = ValueInt.get(0).convertTo(type);
                     } else if (dt.type == Value.TIMESTAMP) {
                         value = ValueTimestamp.fromMillis(session.getTransactionStart());
-                    } else if (dt.type == Value.TIMESTAMP_UTC) {
-                        value = ValueTimestampUtc.fromMillis(session.getTransactionStart());
                     } else if (dt.type == Value.TIMESTAMP_TZ) {
-                        value = ValueTimestampTimeZone.fromMillis(session.getTransactionStart(), (short)0);
+                        long ms = session.getTransactionStart();
+                        value = ValueTimestampTimeZone.fromDateValueAndNanos(
+                                DateTimeUtils.dateValueFromDate(ms),
+                                DateTimeUtils.nanosFromDate(ms), (short) 0);
                     } else if (dt.type == Value.TIME) {
                         value = ValueTime.fromNanos(0);
                     } else if (dt.type == Value.DATE) {

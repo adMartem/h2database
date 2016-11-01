@@ -351,9 +351,16 @@ ShutdownHandler {
                 trayIconUsed = false;
             }
             System.gc();
+            // Mac OS X: Console tool process did not stop on exit
+            for (Thread t : Thread.getAllStackTraces().keySet()) {
+                if (t.getName().startsWith("AWT-")) {
+                    t.interrupt();
+                }
+            }
+            Thread.currentThread().interrupt();
+            // throw new ThreadDeath();
         }
 //*/
-        // System.exit(0);
     }
 
 //## AWT ##

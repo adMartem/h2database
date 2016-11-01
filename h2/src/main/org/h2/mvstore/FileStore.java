@@ -131,6 +131,8 @@ public class FileStore {
             return;
         }
         if (fileName != null) {
+            // ensure the Cache file system is registered
+            FilePathCache.INSTANCE.getScheme();
             FilePath p = FilePath.get(fileName);
             // if no explicit scheme was specified, NIO is used
             if (p instanceof FilePathDisk &&
@@ -177,7 +179,6 @@ public class FileStore {
 			                    "Encryption not supported");
 				}
             }
-            file = FilePathCache.wrap(file);
             try {
                 if (readOnly) {
                     fileLock = file.tryLock(0, Long.MAX_VALUE, true);
