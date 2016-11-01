@@ -106,7 +106,7 @@ dependencies {
     compile('javax.servlet:javax.servlet-api:3.0.1') { transitive = false }
     compile('org.apache.lucene:lucene-core:3.6.2') { transitive = false }
     compile('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
-    compile('org.osgi:org.osgi.core:4.0.0') { transitive = false }
+    compile('org.osgi:org.osgi.core:4.2.0') { transitive = false }
     compile('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
     compile('com.vividsolutions:jts-core:1.14.0') { transitive = false }
     
