@@ -141,14 +141,14 @@ public interface SessionInterface extends Closeable {
     boolean isRemote();
 
     /**
-     * Set current schema as in {@link JdbcConnection#setSchema(String)}.
+     * Set current schema.
      *
      * @param schema the schema name
      */
     void setCurrentSchemaName(String schema);
 
     /**
-     * Get current schema as in {@link JdbcConnection#getSchema()}.
+     * Get current schema.
      *
      * @return the current schema name
      */

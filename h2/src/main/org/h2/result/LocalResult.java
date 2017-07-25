@@ -24,7 +24,7 @@ import org.h2.value.ValueArray;
  * and it is also used directly by the ResultSet class in the embedded mode.
  * If the result does not fit in memory, it is written to a temporary file.
  */
-public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable {
+public class LocalResult implements ResultInterface, ResultTarget {
 
     private int maxMemoryRows;
     private Session session;
@@ -77,6 +77,11 @@ public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable
         this.expressions = expressions;
     }
 
+    @Override
+    public boolean isLazy() {
+        return false;
+    }
+
     public void setMaxMemoryRows(int maxValue) {
         this.maxMemoryRows = maxValue;
     }
@@ -117,6 +122,7 @@ public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable
      * @param targetSession the session of the copy
      * @return the copy if possible, or null if copying is not possible
      */
+    @Override
     public LocalResult createShallowCopy(Session targetSession) {
         if (external == null && (rows == null || rows.size() < rowCount)) {
             return null;
@@ -199,6 +205,7 @@ public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable
      * @param values the row
      * @return true if the row exists
      */
+    @Override
     public boolean containsDistinct(Value[] values) {
         if (external != null) {
             return external.contains(values);
@@ -217,6 +224,7 @@ public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable
     @Override
     public void reset() {
         rowId = -1;
+        currentRow = null;
         if (external != null) {
             external.reset();
             if (diskOffset > 0) {
@@ -252,6 +260,11 @@ public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable
     @Override
     public int getRowId() {
         return rowId;
+    }
+
+    @Override
+    public boolean isAfterLast() {
+        return rowId >= rowCount;
     }
 
     private void cloneLobs(Value[] values) {
@@ -373,6 +386,11 @@ public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable
     @Override
     public int getRowCount() {
         return rowCount;
+    }
+
+    @Override
+    public boolean hasNext() {
+        return !closed && rowId < rowCount - 1;
     }
 
     /**
@@ -508,6 +526,7 @@ public class LocalResult implements ResultInterface, ResultTarget, AutoCloseable
      *
      * @return true if it is
      */
+    @Override
     public boolean isClosed() {
         return closed;
     }

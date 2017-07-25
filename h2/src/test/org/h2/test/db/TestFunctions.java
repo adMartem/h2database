@@ -117,6 +117,7 @@ public class TestFunctions extends TestBase implements AggregateFunction {
         testThatCurrentTimestampStaysTheSameWithinATransaction();
         testThatCurrentTimestampUpdatesOutsideATransaction();
         testAnnotationProcessorsOutput();
+        testRound();
 
         deleteDb("functions");
     }
@@ -178,7 +179,7 @@ public class TestFunctions extends TestBase implements AggregateFunction {
      * @param conn the connection
      * @return a result set
      */
-    public static ResultSet simpleFunctionTable(Connection conn) {
+    public static ResultSet simpleFunctionTable(@SuppressWarnings("unused") Connection conn) {
         SimpleResultSet result = new SimpleResultSet();
         result.addColumn("A", Types.INTEGER, 0, 0);
         result.addColumn("B", Types.CHAR, 0, 0);
@@ -366,7 +367,7 @@ public class TestFunctions extends TestBase implements AggregateFunction {
         ResultSet rs;
         rs = stat.executeQuery("select * from information_schema.views");
         rs.next();
-        assertTrue(rs.getString("VIEW_DEFINITION").contains("SCHEMA2.FUNC"));
+        assertContains(rs.getString("VIEW_DEFINITION"), "SCHEMA2.FUNC");
 
         stat.execute("drop view test");
         stat.execute("drop schema schema2");
@@ -1296,10 +1297,15 @@ public class TestFunctions extends TestBase implements AggregateFunction {
         try {
             ToDateParser.toDate("1-DEC-0000", "DD-MON-RRRR");
             fail("Oracle to_date should reject year 0 (ORA-01841)");
-        } catch (Exception e) { }
+        } catch (Exception e) {
+            // expected
+        }
     }
 
     private void testToDate() throws ParseException {
+        if (Locale.getDefault() != Locale.ENGLISH) {
+            return;
+        }
 
         final int month = Calendar.getInstance().get(Calendar.MONTH);
 
@@ -1543,7 +1549,7 @@ public class TestFunctions extends TestBase implements AggregateFunction {
         expected = expected.substring(0, 1).toUpperCase() + expected.substring(1);
         String spaces = "         ";
         String first9 = (expected + spaces).substring(0, 9);
-        assertResult(first9.toUpperCase(),
+        assertResult(StringUtils.toUpperEnglish(first9),
                 stat, "SELECT TO_CHAR(X, 'DAY') FROM T");
         assertResult(first9,
                 stat, "SELECT TO_CHAR(X, 'Day') FROM T");
@@ -2005,6 +2011,29 @@ public class TestFunctions extends TestBase implements AggregateFunction {
         }
     }
 
+    private void testRound() throws SQLException {
+        deleteDb("functions");
+
+        Connection conn = getConnection("functions");
+        Statement stat = conn.createStatement();
+
+        final ResultSet rs = stat.executeQuery(
+                "select ROUND(-1.2), ROUND(-1.5), ROUND(-1.6), " +
+                "ROUND(2), ROUND(1.5), ROUND(1.8), ROUND(1.1) from dual");
+
+        rs.next();
+        assertEquals(-1, rs.getInt(1));
+        assertEquals(-2, rs.getInt(2));
+        assertEquals(-2, rs.getInt(3));
+        assertEquals(2, rs.getInt(4));
+        assertEquals(2, rs.getInt(5));
+        assertEquals(2, rs.getInt(6));
+        assertEquals(1, rs.getInt(7));
+
+        rs.close();
+        conn.close();
+    }
+
     private void testThatCurrentTimestampIsSane() throws SQLException,
             ParseException {
         deleteDb("functions");
@@ -2230,7 +2259,7 @@ public class TestFunctions extends TestBase implements AggregateFunction {
      * @param conn the connection
      * @return the result set
      */
-    public static ResultSet nullResultSet(Connection conn) {
+    public static ResultSet nullResultSet(@SuppressWarnings("unused") Connection conn) {
         return null;
     }
 

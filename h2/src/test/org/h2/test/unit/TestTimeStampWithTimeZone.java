@@ -6,12 +6,16 @@
 package org.h2.test.unit;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+
 import org.h2.api.TimestampWithTimeZone;
 import org.h2.test.TestBase;
 import org.h2.util.LocalDateTimeUtils;
+import org.h2.value.Value;
 import org.h2.value.ValueTimestampTimeZone;
 
 /**
@@ -34,6 +38,7 @@ public class TestTimeStampWithTimeZone extends TestBase {
         test2();
         test3();
         test4();
+        test5();
         testOrder();
         deleteDb(getTestName());
     }
@@ -41,7 +46,7 @@ public class TestTimeStampWithTimeZone extends TestBase {
     private void test1() throws SQLException {
         Connection conn = getConnection(getTestName());
         Statement stat = conn.createStatement();
-        stat.execute("create table test(id identity, t1 timestamp with timezone)");
+        stat.execute("create table test(id identity, t1 timestamp with time zone)");
         stat.execute("insert into test(t1) values('1970-01-01 12:00:00.00+00:15')");
         // verify NanosSinceMidnight is in local time and not UTC
         stat.execute("insert into test(t1) values('2016-09-24 00:00:00.000000001+00:01')");
@@ -102,6 +107,16 @@ public class TestTimeStampWithTimeZone extends TestBase {
             assertEquals("2015-12-31T19:00-10:00", rs.getObject(1,
                             LocalDateTimeUtils.getOffsetDateTimeClass()).toString());
         }
+
+        ResultSetMetaData metaData = rs.getMetaData();
+        int columnType = metaData.getColumnType(1);
+        // 2014 is the value of Types.TIMESTAMP_WITH_TIMEZONE
+        // use the value instead of the reference because the code has to
+        // compile (on Java 1.7). Can be replaced with
+        // Types.TIMESTAMP_WITH_TIMEZONE
+        // once Java 1.8 is required.
+        assertEquals(2014, columnType);
+
         rs.close();
         stat.close();
         conn.close();
@@ -128,10 +143,35 @@ public class TestTimeStampWithTimeZone extends TestBase {
         assertEquals(c, 0);
     }
 
+    private void test5() throws SQLException {
+        Connection conn = getConnection(getTestName());
+        Statement stat = conn.createStatement();
+        stat.execute("create table test5(id identity, t1 timestamp with time zone)");
+        stat.execute("insert into test5(t1) values('2016-09-24 00:00:00.000000001+00:01')");
+        stat.execute("insert into test5(t1) values('2017-04-20 00:00:00.000000001+00:01')");
+
+        PreparedStatement preparedStatement = conn.prepareStatement("select id"
+                        + " from test5"
+                        + " where (t1 < ?)");
+        Value value = ValueTimestampTimeZone.parse("2016-12-24 00:00:00.000000001+00:01");
+        preparedStatement.setObject(1, value.getObject());
+
+        ResultSet rs = preparedStatement.executeQuery();
+
+        assertTrue(rs.next());
+        assertEquals(1, rs.getInt(1));
+        assertFalse(rs.next());
+
+        rs.close();
+        preparedStatement.close();
+        stat.close();
+        conn.close();
+    }
+
     private void testOrder() throws SQLException {
         Connection conn = getConnection(getTestName());
         Statement stat = conn.createStatement();
-        stat.execute("create table test_order(id identity, t1 timestamp with timezone)");
+        stat.execute("create table test_order(id identity, t1 timestamp with time zone)");
         stat.execute("insert into test_order(t1) values('1970-01-01 12:00:00.00+00:15')");
         stat.execute("insert into test_order(t1) values('1970-01-01 12:00:01.00+01:15')");
         ResultSet rs = stat.executeQuery("select t1 from test_order order by t1");

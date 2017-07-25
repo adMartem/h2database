@@ -12,7 +12,6 @@ import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.net.URL;
-import java.sql.Array;
 import java.sql.Connection;
 import java.sql.ParameterMetaData;
 import java.sql.PreparedStatement;
@@ -24,7 +23,6 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.UUID;
-
 import org.h2.api.ErrorCode;
 import org.h2.api.Trigger;
 import org.h2.test.TestBase;
@@ -59,6 +57,7 @@ public class TestPreparedStatement extends TestBase {
         testToString(conn);
         testExecuteUpdateCall(conn);
         testPrepareExecute(conn);
+        testEnum(conn);
         testUUID(conn);
         testUUIDAsJavaObject(conn);
         testScopedGeneratedKey(conn);
@@ -143,15 +142,11 @@ public class TestPreparedStatement extends TestBase {
             setRowId(1, (RowId) null);
         assertThrows(ErrorCode.FEATURE_NOT_SUPPORTED_1, prep).
             setUnicodeStream(1, (InputStream) null, 0);
-        assertThrows(ErrorCode.FEATURE_NOT_SUPPORTED_1, prep).
-            setArray(1, (Array) null);
 
         ParameterMetaData meta = prep.getParameterMetaData();
         assertTrue(meta.toString(), meta.toString().endsWith("parameterCount=1"));
         assertThrows(ErrorCode.FEATURE_NOT_SUPPORTED_1, conn).
                 createSQLXML();
-        assertThrows(ErrorCode.FEATURE_NOT_SUPPORTED_1, conn).
-                createArrayOf("Integer", new Object[0]);
         assertThrows(ErrorCode.FEATURE_NOT_SUPPORTED_1, conn).
                 createStruct("Integer", new Object[0]);
     }
@@ -377,11 +372,11 @@ public class TestPreparedStatement extends TestBase {
             prepareStatement("SELECT * FROM (SELECT ? FROM DUAL)");
         PreparedStatement prep = conn.prepareStatement("SELECT -?");
         prep.setInt(1, 1);
-        prep.execute();
+        execute(prep);
         prep = conn.prepareStatement("SELECT ?-?");
         prep.setInt(1, 1);
         prep.setInt(2, 2);
-        prep.execute();
+        execute(prep);
     }
 
     private void testCancelReuse(Connection conn) throws Exception {
@@ -395,7 +390,7 @@ public class TestPreparedStatement extends TestBase {
         Task t = new Task() {
             @Override
             public void call() throws SQLException {
-                prep.execute();
+                TestPreparedStatement.this.execute(prep);
             }
         };
         t.execute();
@@ -447,6 +442,37 @@ public class TestPreparedStatement extends TestBase {
         rs.next();
         assertEquals("2", rs.getString(1));
         assertFalse(rs.next());
+    }
+
+    private void testEnum(Connection conn) throws SQLException {
+        Statement stat = conn.createStatement();
+        stat.execute("CREATE TABLE test_enum(size ENUM('small', 'medium', 'large'))");
+
+        String[] badSizes = new String[]{"green", "smol", "0"};
+        for (int i = 0; i < badSizes.length; i++) {
+            PreparedStatement prep = conn.prepareStatement(
+                    "INSERT INTO test_enum VALUES(?)");
+            prep.setObject(1, badSizes[i]);
+            assertThrows(ErrorCode.ENUM_VALUE_NOT_PERMITTED_1, prep).execute();
+        }
+
+        String[] goodSizes = new String[]{"small", "medium", "large"};
+        for (int i = 0; i < goodSizes.length; i++) {
+            PreparedStatement prep = conn.prepareStatement(
+                    "INSERT INTO test_enum VALUES(?)");
+            prep.setObject(1, goodSizes[i]);
+            prep.execute();
+            ResultSet rs = stat.executeQuery("SELECT * FROM test_enum");
+            for (int j = 0; j <= i; j++) {
+                rs.next();
+            }
+            assertEquals(goodSizes[i], rs.getString(1));
+            assertEquals(i, rs.getInt(1));
+            Object o = rs.getObject(1);
+            assertEquals(Integer.class, o.getClass());
+        }
+
+        stat.execute("DROP TABLE test_enum");
     }
 
     private void testUUID(Connection conn) throws SQLException {
@@ -621,6 +647,13 @@ public class TestPreparedStatement extends TestBase {
         Object localTime2 = rs.getObject(1, LocalDateTimeUtils.getLocalTimeClass());
         assertEquals(localTime, localTime2);
         rs.close();
+        localTime = LocalDateTimeUtils.parseLocalTime("04:05:06.123456789");
+        prep.setObject(1, localTime);
+        rs = prep.executeQuery();
+        rs.next();
+        localTime2 = rs.getObject(1, LocalDateTimeUtils.getLocalTimeClass());
+        assertEquals(localTime, localTime2);
+        rs.close();
     }
 
     private void testDateTime8(Connection conn) throws SQLException {
@@ -754,7 +787,7 @@ public class TestPreparedStatement extends TestBase {
         ResultSet rs = prep.executeQuery();
         rs.next();
         String plan = rs.getString(1);
-        assertTrue(plan.contains(".tableScan"));
+        assertContains(plan, ".tableScan");
         rs = prepExe.executeQuery();
         rs.next();
         assertEquals("World", rs.getString(2));
@@ -765,7 +798,7 @@ public class TestPreparedStatement extends TestBase {
         rs = prep.executeQuery();
         rs.next();
         String plan1 = rs.getString(1);
-        assertTrue(plan1.contains("IDXNAME"));
+        assertContains(plan1, "IDXNAME");
         rs = prepExe.executeQuery();
         rs.next();
         assertEquals("Hello", rs.getString(2));
