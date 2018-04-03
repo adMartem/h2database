@@ -1034,7 +1034,7 @@ public class TransactionStore {
          * @param keyValueList the list of key-value pairs to be added
          */
         public <L extends KeyValueList<KeyValue<K,?>>> void addCommitted(L keyValueList) {
-            map.putMultiple(keyValueList, new VersionedValueFactory());
+            map.update(keyValueList, new VersionedValueFactory());
         }
 
         private V set(K key, V value) {
