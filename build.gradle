@@ -108,7 +108,7 @@ dependencies {
     compile('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
     compile('org.osgi:org.osgi.core:4.2.0') { transitive = false }
     compile('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
-    compile('com.vividsolutions:jts-core:1.14.0') { transitive = false }
+    compile('org.locationtech:jts-core:1.16.0') { transitive = false }
     
     testCompile fileTree(dir: 'h2/ext')
     testCompile group: 'junit', name: 'junit', version: '4.+'
