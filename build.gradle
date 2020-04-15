@@ -103,12 +103,12 @@ uploadArchives {
 
 dependencies {    
     
-    compile('javax.servlet:javax.servlet-api:3.0.1') { transitive = false }
-    compile('org.apache.lucene:lucene-core:3.6.2') { transitive = false }
-    compile('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
-    compile('org.osgi:org.osgi.core:4.2.0') { transitive = false }
-    compile('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
-    compile('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
+    implementation('javax.servlet:javax.servlet-api:3.0.1') { transitive = false }
+    implementation('org.apache.lucene:lucene-core:3.6.2') { transitive = false }
+    implementation('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
+    implementation('org.osgi:org.osgi.core:4.2.0') { transitive = false }
+    implementation('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
+    implementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
     
     testCompile fileTree(dir: 'h2/ext')
     testCompile group: 'junit', name: 'junit', version: '4.+'
@@ -118,6 +118,6 @@ dependencies {
  * Generates a wrapper for windows/linux that automatically downloads gradle
  */
 task wrapper(type: Wrapper) {
-    gradleVersion = '2.7'
+    gradleVersion = '5.0'
 }
 
