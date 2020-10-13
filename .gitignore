@@ -17,3 +17,7 @@
 .checkstyle
 /temp/
 /h2web/
+*.dmp
+*.phd
+javacore.*
+*.trc

@@ -39,7 +39,7 @@ task compile {
           jvmArgs = [
             '-cp', configurations.ecj.asPath,
             'org.eclipse.jdt.internal.compiler.batch.Main',
-            '-7'
+            '-8'
             ]
         }
       }
@@ -59,7 +59,7 @@ task compile {
           jvmArgs = [ 
             '-cp', configurations.ecj.asPath, 
             'org.eclipse.jdt.internal.compiler.batch.Main',
-            '-7'
+            '-8'
           ]
         }
       }
@@ -110,8 +110,10 @@ dependencies {
     implementation('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
     implementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
     
-    testCompile fileTree(dir: 'h2/ext')
-    testCompile group: 'junit', name: 'junit', version: '4.+'
+    testImplementation fileTree(dir: 'h2/ext')
+    testImplementation group: 'junit', name: 'junit', version: '4.+'
+    testImplementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
+    testImplementation 'javax.servlet:javax.servlet-api:3.1.0'
 }
 
 /**
