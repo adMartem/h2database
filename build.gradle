@@ -1,6 +1,6 @@
 apply plugin: 'java'
 apply plugin: 'eclipse'
-apply plugin: 'maven'
+apply plugin: 'maven-publish'
 
 /*
  * NOTE: H2 is compiled and shadowed as part of (source on classpath) the p3cobol parent project.  
@@ -71,7 +71,7 @@ jar {
     manifest {
         attributes provider: 'Gradle Build',
         'Implementation-Title': 'H2 (P3/COBOL) Database System', 
-        'Implementation-Version': version,
+        'Implementation-Version': archiveVersion,
         'Main-Class': 'org.h2.tools.Console'
     }
 }
