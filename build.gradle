@@ -1,16 +1,28 @@
-apply plugin: 'java'
-apply plugin: 'eclipse'
-apply plugin: 'maven-publish'
-
-/*
- * NOTE: H2 is compiled and shadowed as part of (source on classpath) the p3cobol parent project.  
- * This project builds a full distribution jar of H2 that is compatible with the p3cobol shadowed 
+/**
+ * NOTE: H2 can now build itself using the gradle java build. It is imported in the p3cobol parent project
+ * and shadowed when building the p3cobol-library.
+ * This project builds a full distribution jar of H2 that is compatible with the p3cobol shadowed
  * portion used for the indexed file storage manager.  This must be used if an H2 database is to
  * be accessed by both the indexed file system and as a SQL database.
- */ 
+ */
+
+plugins {
+    id 'java'
+}
+
+dependencies {
+    implementation('javax.servlet:javax.servlet-api:3.0.1') { transitive = false }
+    implementation('org.apache.lucene:lucene-core:3.6.2') { transitive = false }
+    implementation('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
+    compileOnly('org.osgi:org.osgi.core:4.2.0') { transitive = false }
+    compileOnly('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
+    implementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
+
+    testCompile fileTree(dir: 'h2/ext')
+    testCompile group: 'junit', name: 'junit', version: '4.+'
+}
 
 sourceSets {
-
     main {
         java {
             srcDirs 'h2/src/main'
@@ -19,107 +31,21 @@ sourceSets {
             srcDirs 'h2/src/main'
         }
     }
-}
-    
-
-    
-task compile {
-
-    /**
-     * Fork the java compiler and use ECJ instead of javac
-     * Compile all sources as if they were UTF-8
-     */
-    compileJava {
-      options.encoding = 'UTF-8'
-      options.fork = true
-      options.warnings = false
-      doFirst {
-        options.forkOptions.with { 
-          executable = 'java'
-          jvmArgs = [
-            '-cp', configurations.ecj.asPath,
-            'org.eclipse.jdt.internal.compiler.batch.Main',
-            '-8'
-            ]
-        }
-      }
-    }
-
-    /**
-     * Fork the java compiler and use ECJ instead of javac
-     * Compile all sources as if they were UTF-8
-     */
-    compileTestJava {
-      options.encoding = 'UTF-8'
-      options.fork = true
-      options.warnings = false
-      doFirst {
-        options.forkOptions.with {
-          executable = 'java'
-          jvmArgs = [ 
-            '-cp', configurations.ecj.asPath, 
-            'org.eclipse.jdt.internal.compiler.batch.Main',
-            '-8'
-          ]
-        }
-      }
-    }
-
-}
-
-jar {
-    manifest {
-        attributes provider: 'Gradle Build',
-        'Implementation-Title': 'H2 (P3/COBOL) Database System', 
-        'Implementation-Version': archiveVersion,
-        'Main-Class': 'org.h2.tools.Console'
-    }
-}
-
-sourceSets {
     test {
         java {
             srcDirs 'h2/src/test'
             srcDirs 'h2/src/tools/org/h2/dev'
             srcDirs 'h2/src/tools/org/h2/mode'
-            srcDirs 'h2/src/tools/org/h2/jaqu'            
+            srcDirs 'h2/src/tools/org/h2/jaqu'
         }
     }
 }
 
-eclipse {
-    classpath {
-        sourceSets = [ sourceSets.main ]
+jar {
+    manifest {
+        attributes provider: 'Gradle Build',
+                'Implementation-Title': 'H2 (P3/COBOL) Database System',
+                'Implementation-Version': project.version,
+                'Main-Class': 'org.h2.tools.Console'
     }
 }
-
-uploadArchives {
-    repositories {
-       flatDir {
-           dirs 'repos'
-       }
-    }
-}
-
-dependencies {    
-    
-    implementation('javax.servlet:javax.servlet-api:3.0.1') { transitive = false }
-    implementation('org.apache.lucene:lucene-core:3.6.2') { transitive = false }
-    implementation('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
-    implementation('org.osgi:org.osgi.core:4.2.0') { transitive = false }
-    implementation('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
-    implementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
-    
-    testImplementation fileTree(dir: 'h2/ext')
-    testImplementation group: 'junit', name: 'junit', version: '4.+'
-    testImplementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
-    testImplementation 'javax.servlet:javax.servlet-api:3.1.0'
-}
-
-/**
- * Generates a wrapper for windows/linux that automatically downloads gradle
- */
-task wrapper(type: Wrapper) {
-    gradleVersion = '5.0'
-}
-
