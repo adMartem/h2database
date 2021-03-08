@@ -8,6 +8,7 @@
 
 plugins {
     id 'java'
+    id 'eclipse'
 }
 
 dependencies {
@@ -18,8 +19,8 @@ dependencies {
     compileOnly('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
     implementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
 
-    testCompile fileTree(dir: 'h2/ext')
-    testCompile group: 'junit', name: 'junit', version: '4.+'
+    testImplementation fileTree(dir: 'h2/ext')
+    testImplementation group: 'junit', name: 'junit', version: '4.+'
 }
 
 sourceSets {
@@ -38,6 +39,12 @@ sourceSets {
             srcDirs 'h2/src/tools/org/h2/mode'
             srcDirs 'h2/src/tools/org/h2/jaqu'
         }
+    }
+}
+
+eclipse {
+    classpath {
+        sourceSets = [ sourceSets.main ]
     }
 }
 
