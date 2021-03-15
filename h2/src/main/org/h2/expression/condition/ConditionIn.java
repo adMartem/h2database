@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -56,7 +56,7 @@ public final class ConditionIn extends Condition {
         if (!whenOperand) {
             return super.getWhenValue(session, left);
         }
-        return getValue(session, left).getBoolean();
+        return getValue(session, left).isTrue();
     }
 
     private Value getValue(SessionLocal session, Value left) {
@@ -161,8 +161,10 @@ public final class ConditionIn extends Condition {
         }
         if (session.getDatabase().getSettings().optimizeInList) {
             ExpressionVisitor visitor = ExpressionVisitor.getNotFromResolverVisitor(filter);
+            TypeInfo colType = l.getType();
             for (Expression e : valueList) {
-                if (!e.isEverything(visitor)) {
+                if (!e.isEverything(visitor)
+                        || !TypeInfo.haveSameOrdering(colType, TypeInfo.getHigherType(colType, e.getType()))) {
                     return;
                 }
             }

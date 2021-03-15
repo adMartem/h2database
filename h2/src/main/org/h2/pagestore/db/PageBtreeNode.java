@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -107,8 +107,13 @@ public class PageBtreeNode extends PageBtree {
         entryCount = data.readShortInt();
         childPageIds = new int[entryCount + 1];
         childPageIds[entryCount] = data.readInt();
-        rows = entryCount == 0 ? PageStoreRow.EMPTY_SEARCH_ARRAY : new SearchRow[entryCount];
-        offsets = Utils.newIntArray(entryCount);
+        if (entryCount == 0) {
+            rows = PageStoreRow.EMPTY_SEARCH_ARRAY;
+            offsets = Utils.EMPTY_INT_ARRAY;
+        } else {
+            rows = new SearchRow[entryCount];
+            offsets = new int[entryCount];
+        }
         for (int i = 0; i < entryCount; i++) {
             childPageIds[i] = data.readInt();
             offsets[i] = data.readShortInt();
@@ -137,7 +142,7 @@ public class PageBtreeNode extends PageBtree {
             // more space) - and removing a child can't split this page
             startData = entryCount + 1 * MAX_KEY_LENGTH;
         } else {
-            int rowLength = index.getRowSize(data, row, onlyPosition);
+            int rowLength = index.getRowSize(row, onlyPosition);
             int pageSize = index.getPageStore().getPageSize();
             int last = entryCount == 0 ? pageSize : offsets[entryCount - 1];
             startData = last - rowLength;
@@ -157,7 +162,7 @@ public class PageBtreeNode extends PageBtree {
      *            children
      */
     private void addChild(int x, int childPageId, SearchRow row) {
-        int rowLength = index.getRowSize(data, row, onlyPosition);
+        int rowLength = index.getRowSize(row, onlyPosition);
         int pageSize = index.getPageStore().getPageSize();
         int last = entryCount == 0 ? pageSize : offsets[entryCount - 1];
         if (last - rowLength < start + CHILD_OFFSET_PAIR_LENGTH) {
@@ -166,11 +171,11 @@ public class PageBtreeNode extends PageBtree {
             // change the offsets (now storing only positions)
             int o = pageSize;
             for (int i = 0; i < entryCount; i++) {
-                o -= index.getRowSize(data, getRow(i), true);
+                o -= index.getRowSize(getRow(i), true);
                 offsets[i] = o;
             }
             last = entryCount == 0 ? pageSize : offsets[entryCount - 1];
-            rowLength = index.getRowSize(data, row, true);
+            rowLength = index.getRowSize(row, true);
             if (last - rowLength < start + CHILD_OFFSET_PAIR_LENGTH) {
                 throw DbException.getInternalError();
             }

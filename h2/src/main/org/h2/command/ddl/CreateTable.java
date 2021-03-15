@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -75,9 +75,6 @@ public class CreateTable extends CommandWithColumns {
         if (!isSessionTemporary) {
             session.getUser().checkSchemaOwner(schema);
         }
-        if (!transactional) {
-            session.commit(true);
-        }
         Database db = session.getDatabase();
         if (!db.isPersistent()) {
             data.persistIndexes = false;
@@ -134,23 +131,6 @@ public class CreateTable extends CommandWithColumns {
                 table.addSequence(sequence);
             }
             createConstraints();
-            if (asQuery != null && !withNoData) {
-                boolean old = session.isUndoLogEnabled();
-                try {
-                    session.setUndoLogEnabled(false);
-                    session.startStatementWithinTransaction(null);
-                    Insert insert = new Insert(session);
-                    insert.setSortedInsertMode(sortedInsertMode);
-                    insert.setQuery(asQuery);
-                    insert.setTable(table);
-                    insert.setInsertFromSelect(true);
-                    insert.prepare();
-                    insert.update();
-                } finally {
-                    session.endStatement();
-                    session.setUndoLogEnabled(old);
-                }
-            }
             HashSet<DbObject> set = new HashSet<>();
             table.addDependencies(set);
             for (DbObject obj : set) {
@@ -168,6 +148,44 @@ public class CreateTable extends CommandWithColumns {
                                     ", this is currently not supported, " +
                                     "as it would prevent the database from " +
                                     "being re-opened");
+                        }
+                    }
+                }
+            }
+            if (asQuery != null && !withNoData) {
+                boolean flushSequences = false;
+                if (!isSessionTemporary) {
+                    db.unlockMeta(session);
+                    for (Column c : table.getColumns()) {
+                        Sequence s = c.getSequence();
+                        if (s != null) {
+                            flushSequences = true;
+                            s.setTemporary(true);
+                        }
+                    }
+                }
+                boolean old = session.isUndoLogEnabled();
+                try {
+                    session.setUndoLogEnabled(false);
+                    session.startStatementWithinTransaction(null);
+                    Insert insert = new Insert(session);
+                    insert.setSortedInsertMode(sortedInsertMode);
+                    insert.setQuery(asQuery);
+                    insert.setTable(table);
+                    insert.setInsertFromSelect(true);
+                    insert.prepare();
+                    insert.update();
+                } finally {
+                    session.endStatement();
+                    session.setUndoLogEnabled(old);
+                }
+                if (flushSequences) {
+                    db.lockMeta(session);
+                    for (Column c : table.getColumns()) {
+                        Sequence s = c.getSequence();
+                        if (s != null) {
+                            s.setTemporary(false);
+                            s.flush(session);
                         }
                     }
                 }

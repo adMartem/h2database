@@ -1,4 +1,4 @@
--- Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+-- Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
 -- and the EPL 1.0 (https://h2database.com/html/license.html).
 -- Initial Developer: H2 Group
 --
@@ -74,6 +74,28 @@ SELECT _ROWID_, A FROM TEST WHERE B = 4;
 > ------- -
 > 3       3
 > rows: 1
+
+DROP TABLE TEST;
+> ok
+
+CREATE TABLE TEST(V VARCHAR(2)) AS VALUES -1, -2;
+> ok
+
+CREATE INDEX TEST_INDEX ON TEST(V);
+> ok
+
+SELECT * FROM TEST WHERE V >= -1;
+>> -1
+
+-- H2 may use the index for a table scan, but may not create index conditions due to incompatible type
+EXPLAIN SELECT * FROM TEST WHERE V >= -1;
+>> SELECT "PUBLIC"."TEST"."V" FROM "PUBLIC"."TEST" /* PUBLIC.TEST_INDEX */ WHERE "V" >= -1
+
+EXPLAIN SELECT * FROM TEST WHERE V IN (-1, -3);
+>> SELECT "PUBLIC"."TEST"."V" FROM "PUBLIC"."TEST" /* PUBLIC.TEST_INDEX */ WHERE "V" IN(-1, -3)
+
+SELECT * FROM TEST WHERE V < -1;
+>> -2
 
 DROP TABLE TEST;
 > ok

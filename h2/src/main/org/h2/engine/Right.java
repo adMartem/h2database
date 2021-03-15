@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -106,8 +106,8 @@ public final class Right extends DbObject {
             comma = appendRight(buff, grantedRight, SELECT, "SELECT", comma);
             comma = appendRight(buff, grantedRight, DELETE, "DELETE", comma);
             comma = appendRight(buff, grantedRight, INSERT, "INSERT", comma);
-            comma = appendRight(buff, grantedRight, ALTER_ANY_SCHEMA, "ALTER ANY SCHEMA", comma);
-            appendRight(buff, grantedRight, UPDATE, "UPDATE", comma);
+            comma = appendRight(buff, grantedRight, UPDATE, "UPDATE", comma);
+            appendRight(buff, grantedRight, ALTER_ANY_SCHEMA, "ALTER ANY SCHEMA", comma);
         }
         return buff.toString();
     }

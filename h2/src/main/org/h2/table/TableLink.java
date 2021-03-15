@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -64,6 +64,7 @@ public class TableLink extends Table {
     private boolean globalTemporary;
     private boolean readOnly;
     private boolean targetsMySql;
+    private int fetchSize = 0;
 
     public TableLink(Schema schema, int id, String name, String driver,
             String url, String user, String password, String originalSchema,
@@ -395,6 +396,9 @@ public class TableLink extends Table {
         if (readOnly) {
             buff.append(" READONLY");
         }
+        if (fetchSize != 0) {
+            buff.append(" FETCH_SIZE ").append(fetchSize);
+        }
         buff.append(" /*").append(DbException.HIDE_SQL).append("*/");
         return buff.toString();
     }
@@ -500,6 +504,9 @@ public class TableLink extends Table {
                     PreparedStatement prep = preparedMap.remove(sql);
                     if (prep == null) {
                         prep = conn.getConnection().prepareStatement(sql);
+                        if (fetchSize != 0) {
+                            prep.setFetchSize(fetchSize);
+                        }
                     }
                     if (trace.isDebugEnabled()) {
                         StringBuilder builder = new StringBuilder(getName()).append(":\n").append(sql);
@@ -686,6 +693,25 @@ public class TableLink extends Table {
                 }
             }
         }
+    }
+
+    /**
+     * Specify the number of rows fetched by the linked table command
+     *
+     * @param fetchSize
+     */
+    public void setFetchSize(int fetchSize) {
+        this.fetchSize = fetchSize;
+    }
+
+    /**
+     * The number of rows to fetch
+     * default is 0
+     *
+     * @return
+     */
+    public int getFetchSize() {
+        return fetchSize;
     }
 
 }

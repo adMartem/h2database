@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -389,7 +389,14 @@ public class LocalResult implements ResultInterface, ResultTarget {
             if (sort != null && limit != 0 && !limitsWereApplied) {
                 boolean withLimit = limit > 0 && withTiesSortOrder == null;
                 if (offset > 0 || withLimit) {
-                    sort.sort(rows, (int) offset, withLimit ? (int) limit : rows.size());
+                    int endExclusive = rows.size();
+                    if (offset < endExclusive) {
+                        int fromInclusive = (int) offset;
+                        if (withLimit && limit < endExclusive - fromInclusive) {
+                            endExclusive = fromInclusive + (int) limit;
+                        }
+                        sort.sort(rows, fromInclusive, endExclusive);
+                    }
                 } else {
                     sort.sort(rows);
                 }
@@ -413,7 +420,7 @@ public class LocalResult implements ResultInterface, ResultTarget {
                 throw DbException.getInvalidValueException("FETCH PERCENT", limit);
             }
             // Oracle rounds percent up, do the same for now
-            limit = (int) ((limit * rowCount + 99) / 100);
+            limit = (limit * rowCount + 99) / 100;
         }
         boolean clearAll = offset >= rowCount || limit == 0;
         if (!clearAll) {
@@ -574,8 +581,8 @@ public class LocalResult implements ResultInterface, ResultTarget {
     }
 
     @Override
-    public boolean isAutoIncrement(int i) {
-        return expressions[i].isAutoIncrement();
+    public boolean isIdentity(int i) {
+        return expressions[i].isIdentity();
     }
 
     /**

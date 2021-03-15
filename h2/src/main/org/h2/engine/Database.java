@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -19,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.StringTokenizer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -408,8 +407,6 @@ public final class Database implements DataHandler, CastDataProvider {
                     setting.setIntValue(Constants.BUILD_ID);
                     lockMeta(systemSession);
                     addDatabaseObject(systemSession, setting);
-                } else if (createBuild < 201) {
-                    upgradeMetaTo2_0(setting);
                 }
                 // mark all ids used in the page store
                 if (pageStore != null) {
@@ -417,7 +414,6 @@ public final class Database implements DataHandler, CastDataProvider {
                 }
             }
             lobStorage = dbSettings.mvStore ? new LobStorageMap(this) : new LobStorageBackend(this);
-            lobStorage.init();
             systemSession.commit(true);
             trace.info("opened {0}", databaseName);
             if (persistent) {
@@ -604,20 +600,21 @@ public final class Database implements DataHandler, CastDataProvider {
 
     private String parseDatabaseShortName() {
         String n = databaseName;
-        if (n.endsWith(":")) {
-            n = null;
-        }
-        if (n != null) {
-            StringTokenizer tokenizer = new StringTokenizer(n, "/\\:,;");
-            while (tokenizer.hasMoreTokens()) {
-                n = tokenizer.nextToken();
+        int l = n.length(), i = l;
+        loop: while (--i >= 0) {
+            char ch = n.charAt(i);
+            switch (ch) {
+            case '/':
+            case ':':
+            case '\\':
+                break loop;
             }
         }
-        if (n == null || n.isEmpty()) {
-            n = "unnamed";
-        }
-        return dbSettings.databaseToUpper ? StringUtils.toUpperEnglish(n)
-                : dbSettings.databaseToLower ? StringUtils.toLowerEnglish(n) : n;
+        n = ++i == l ? "UNNAMED" : n.substring(i);
+        return StringUtils.truncateString(
+                dbSettings.databaseToUpper ? StringUtils.toUpperEnglish(n)
+                        : dbSettings.databaseToLower ? StringUtils.toLowerEnglish(n) : n,
+                Constants.MAX_IDENTIFIER_LENGTH);
     }
 
     private CreateTableData createSysTableData() {
@@ -652,46 +649,6 @@ public final class Database implements DataHandler, CastDataProvider {
                 objectIds.set(i);
             }
         }
-    }
-
-    /**
-     * Returns whether database was in 1.X format.
-     *
-     * @return {@code true} if database was in 1.X format, {@code false} otherwise
-     */
-    public boolean upgradeTo2_0() {
-        return createBuild < 201;
-    }
-
-    private void upgradeMetaTo2_0(Setting setting) {
-        lockMeta(systemSession);
-        ArrayList<Integer> metaToRemove = new ArrayList<>();
-        for (Cursor cursor = metaIdIndex.find(systemSession, null, null); cursor.next();) {
-            MetaRecord rec = new MetaRecord(cursor.get());
-            objectIds.set(rec.getId());
-            switch (rec.getObjectType()) {
-            case DbObject.INDEX:
-                if (!isMVStore()) {
-                    String sql = rec.getSQL();
-                    if (sql.startsWith("CREATE SPATIAL INDEX ")) {
-                        metaToRemove.add(rec.getId());
-                    }
-                }
-                break;
-            case DbObject.SETTING: {
-                String sql = rec.getSQL();
-                if (sql.startsWith("SET BINARY_COLLATION ") || sql.startsWith("SET UUID_COLLATION ")) {
-                    metaToRemove.add(rec.getId());
-                }
-                break;
-            }
-            }
-        }
-        for (int meta : metaToRemove) {
-            removeMeta(systemSession, meta);
-        }
-        setting.setIntValue(Constants.BUILD_ID);
-        updateMeta(systemSession, setting);
     }
 
     private void executeMeta() {

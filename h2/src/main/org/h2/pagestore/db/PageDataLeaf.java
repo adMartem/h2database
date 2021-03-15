@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -17,6 +17,7 @@ import org.h2.pagestore.PageStore;
 import org.h2.result.Row;
 import org.h2.result.SearchRow;
 import org.h2.store.Data;
+import org.h2.table.Column;
 import org.h2.util.HasSQL;
 import org.h2.value.Value;
 
@@ -144,7 +145,7 @@ public class PageDataLeaf extends PageData {
     private int getRowLength(Row row) {
         int size = 0;
         for (int i = 0; i < columnCount; i++) {
-            size += data.getValueLen(row.getValue(i));
+            size += Data.getValueLen(row.getValue(i));
         }
         return size;
     }
@@ -592,12 +593,13 @@ public class PageDataLeaf extends PageData {
      * @param columnCount the number of columns
      * @return the row
      */
-    private static Row readRow(Data data, int pos, int columnCount) {
+    private Row readRow(Data data, int pos, int columnCount) {
         Value[] values = new Value[columnCount];
+        Column[] columns = index.getColumns();
         synchronized (data) {
             data.setPos(pos);
             for (int i = 0; i < columnCount; i++) {
-                values[i] = data.readValue();
+                values[i] = data.readValue(columns[i].getType());
             }
         }
         return Row.get(values, SearchRow.MEMORY_CALCULATE);

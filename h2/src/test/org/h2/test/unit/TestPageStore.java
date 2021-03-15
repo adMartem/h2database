@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -711,7 +711,7 @@ public class TestPageStore extends TestDb {
         conn = getConnection("pageStoreCreatePkLater");
         stat = conn.createStatement();
         stat.execute("create table test(id int not null) as select 100");
-        stat.execute("create primary key on test(id)");
+        stat.execute("alter table test add primary key(id)");
         conn.close();
         conn = getConnection("pageStoreCreatePkLater");
         stat = conn.createStatement();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -165,8 +165,10 @@ public class MVStore implements AutoCloseable {
      */
     static final int BLOCK_SIZE = 4 * 1024;
 
-    private static final int FORMAT_WRITE = 2;
-    private static final int FORMAT_READ = 2;
+    private static final int FORMAT_WRITE_MIN = 2;
+    private static final int FORMAT_WRITE_MAX = 2;
+    private static final int FORMAT_READ_MIN = 2;
+    private static final int FORMAT_READ_MAX = 2;
 
     /**
      * Store is open.
@@ -376,9 +378,16 @@ public class MVStore implements AutoCloseable {
         compressionLevel = DataUtils.getConfigParam(config, "compress", 0);
         String fileName = (String) config.get("fileName");
         FileStore fileStore = (FileStore) config.get("fileStore");
-        fileStoreIsProvided = fileStore != null;
-        if(fileStore == null && fileName != null) {
-            fileStore = new FileStore();
+        if (fileStore == null) {
+            fileStoreIsProvided = false;
+            if (fileName != null) {
+                fileStore = new FileStore();
+            }
+        } else {
+            if (fileName != null) {
+                throw new IllegalArgumentException("fileName && fileStore");
+            }
+            fileStoreIsProvided = true;
         }
         this.fileStore = fileStore;
 
@@ -438,7 +447,7 @@ public class MVStore implements AutoCloseable {
                         creationTime = getTimeAbsolute();
                         storeHeader.put(HDR_H, 2);
                         storeHeader.put(HDR_BLOCK_SIZE, BLOCK_SIZE);
-                        storeHeader.put(HDR_FORMAT, FORMAT_WRITE);
+                        storeHeader.put(HDR_FORMAT, FORMAT_WRITE_MAX);
                         storeHeader.put(HDR_CREATED, creationTime);
                         setLastChunk(null);
                         writeStoreHeader();
@@ -858,21 +867,26 @@ public class MVStore implements AutoCloseable {
                     blockSize);
         }
         long format = DataUtils.readHexLong(storeHeader, HDR_FORMAT, 1);
-        if (format > FORMAT_WRITE && !fileStore.isReadOnly()) {
-            throw DataUtils.newMVStoreException(
-                    DataUtils.ERROR_UNSUPPORTED_FORMAT,
-                    "The write format {0} is larger " +
-                    "than the supported format {1}, " +
-                    "and the file was not opened in read-only mode",
-                    format, FORMAT_WRITE);
+        if (!fileStore.isReadOnly()) {
+            if (format > FORMAT_WRITE_MAX) {
+                throw getUnsupportedWriteFormatException(format, FORMAT_WRITE_MAX,
+                        "The write format {0} is larger than the supported format {1}");
+            } else if (format < FORMAT_WRITE_MIN) {
+                throw getUnsupportedWriteFormatException(format, FORMAT_WRITE_MIN,
+                        "The write format {0} is smaller than the supported format {1}");
+            }
         }
         format = DataUtils.readHexLong(storeHeader, HDR_FORMAT_READ, format);
-        if (format > FORMAT_READ) {
+        if (format > FORMAT_READ_MAX) {
             throw DataUtils.newMVStoreException(
                     DataUtils.ERROR_UNSUPPORTED_FORMAT,
-                    "The read format {0} is larger " +
-                    "than the supported format {1}",
-                    format, FORMAT_READ);
+                    "The read format {0} is larger than the supported format {1}",
+                    format, FORMAT_READ_MAX);
+        } else if (format < FORMAT_READ_MIN) {
+            throw DataUtils.newMVStoreException(
+                    DataUtils.ERROR_UNSUPPORTED_FORMAT,
+                    "The read format {0} is smaller than the supported format {1}",
+                    format, FORMAT_READ_MIN);
         }
 
         assumeCleanShutdown = assumeCleanShutdown && newest != null && !recoveryMode;
@@ -1032,6 +1046,14 @@ public class MVStore implements AutoCloseable {
             }
         }
         assert validateFileLength("on open");
+    }
+
+    private MVStoreException getUnsupportedWriteFormatException(long format, int expectedFormat, String s) {
+        format = DataUtils.readHexLong(storeHeader, HDR_FORMAT_READ, format);
+        if (format >= FORMAT_READ_MIN && format <= FORMAT_READ_MAX) {
+            s += ", and the file was not opened in read-only mode";
+        }
+        return DataUtils.newMVStoreException(DataUtils.ERROR_UNSUPPORTED_FORMAT, s, format, expectedFormat);
     }
 
     private boolean findLastChunkWithCompleteValidChunkSet(Chunk[] lastChunkCandidates,
@@ -2537,9 +2559,6 @@ public class MVStore implements AutoCloseable {
                 try {
                     ByteBuffer buff = chunk.readBufferForPage(fileStore, pageOffset, pos);
                     p = Page.read(buff, pos, map);
-                    if (p.pageNo < 0) {
-                        p.pageNo = calculatePageNo(pos);
-                    }
                 } catch (MVStoreException e) {
                     throw e;
                 } catch (Exception e) {

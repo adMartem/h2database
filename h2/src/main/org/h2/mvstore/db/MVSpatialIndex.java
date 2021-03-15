@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -37,7 +37,6 @@ import org.h2.table.Column;
 import org.h2.table.IndexColumn;
 import org.h2.table.TableFilter;
 import org.h2.value.Value;
-import org.h2.value.ValueBigint;
 import org.h2.value.ValueGeometry;
 import org.h2.value.ValueNull;
 import org.h2.value.VersionedValue;
@@ -100,8 +99,7 @@ public class MVSpatialIndex extends MVIndex<Spatial, Value> implements SpatialIn
             checkIndexColumnTypes(columns);
         }
         String mapName = "index." + getId();
-        ValueDataType vt = new ValueDataType(db, null);
-        VersionedValueType<Value, Database> valueType = new VersionedValueType<>(vt);
+        VersionedValueType<Value, Database> valueType = new VersionedValueType<>(NullValueDataType.INSTANCE);
         MVRTreeMap.Builder<VersionedValue<Value>> mapBuilder =
                 new MVRTreeMap.Builder<VersionedValue<Value>>().
                 valueType(valueType);
@@ -148,7 +146,7 @@ public class MVSpatialIndex extends MVIndex<Spatial, Value> implements SpatialIn
             }
         }
         try {
-            map.put(key, ValueBigint.get(0));
+            map.put(key, ValueNull.INSTANCE);
         } catch (MVStoreException e) {
             throw mvTable.convertException(e);
         }

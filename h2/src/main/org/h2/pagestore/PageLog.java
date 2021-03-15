@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -26,6 +26,7 @@ import org.h2.store.InDoubtTransaction;
 import org.h2.util.IntArray;
 import org.h2.util.IntIntHashMap;
 import org.h2.util.Utils;
+import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 import org.h2.value.ValueNull;
 
@@ -465,7 +466,7 @@ public class PageLog {
         int columnCount = data.readVarInt();
         Value[] values = new Value[columnCount];
         for (int i = 0; i < columnCount; i++) {
-            values[i] = data.readValue();
+            values[i] = data.readValue(TypeInfo.TYPE_UNKNOWN);
         }
         return Row.get(values, SearchRow.MEMORY_CALCULATE, key);
     }
@@ -625,7 +626,7 @@ public class PageLog {
         data.writeVarInt(columns);
         int size = 0;
         for (Value v : row.getValueList()) {
-            size += data.getValueLen(v);
+            size += Data.getValueLen(v);
         }
         data.checkCapacity(size);
         if (session.isRedoLogBinaryEnabled()) {

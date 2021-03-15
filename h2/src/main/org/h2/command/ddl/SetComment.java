@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -35,7 +35,6 @@ public class SetComment extends DefineCommand {
 
     @Override
     public long update() {
-        session.commit(true);
         Database db = session.getDatabase();
         DbObject object = null;
         int errorCode = ErrorCode.GENERAL_ERROR_1;

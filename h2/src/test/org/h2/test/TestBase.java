@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -70,6 +70,11 @@ public abstract class TestBase {
      * The base directory to write test databases.
      */
     private static String baseDir = getTestDir("");
+
+    /**
+     * The maximum size of byte array.
+     */
+    private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
 
     /**
      * The test configuration.
@@ -1408,11 +1413,11 @@ public abstract class TestBase {
      * @param remainingKB the number of kilobytes that are not referenced
      */
     protected void eatMemory(int remainingKB) {
-        int memoryFreeKB;
+        long memoryFreeKB;
         try {
             while ((memoryFreeKB = Utils.getMemoryFree()) > remainingKB) {
-                byte[] block = new byte[Math.max((memoryFreeKB - remainingKB) / 16, 16) * 1024];
-                memory.add(block);
+                long blockSize = Math.max((memoryFreeKB - remainingKB) / 16, 16) * 1024;
+                memory.add(new byte[blockSize > MAX_ARRAY_SIZE ? MAX_ARRAY_SIZE : (int) blockSize]);
             }
         } catch (OutOfMemoryError e) {
             if (remainingKB >= 3000) { // OOM is not expected
@@ -1563,10 +1568,19 @@ public abstract class TestBase {
     @FunctionalInterface
     protected interface VoidCallable {
 
+        /**
+         * call the lambda
+         */
         void call() throws Exception;
 
     }
 
+    /**
+     * Assert that the lambda function throws an exception of the expected class.
+     *
+     * @param expectedExceptionClass expected exception class
+     * @param c lambda function
+     */
     protected void assertThrows(Class<?> expectedExceptionClass, Callable<?> c) {
         try {
             Object returnValue = c.call();
@@ -1577,6 +1591,12 @@ public abstract class TestBase {
         }
     }
 
+    /**
+     * Assert that the lambda function throws an exception of the expected class.
+     *
+     * @param expectedExceptionClass expected exception class
+     * @param c lambda function
+     */
     protected void assertThrows(Class<?> expectedExceptionClass, VoidCallable c) {
         try {
             c.call();
@@ -1587,6 +1607,13 @@ public abstract class TestBase {
         }
     }
 
+    /**
+     * Assert that the lambda function throws a SQLException or DbException with the
+     * expected error code.
+     *
+     * @param expectedErrorCode SQL error code
+     * @param c lambda function
+     */
     protected void assertThrows(int expectedErrorCode, Callable<?> c) {
         try {
             Object returnValue = c.call();
@@ -1597,6 +1624,13 @@ public abstract class TestBase {
         }
     }
 
+    /**
+     * Assert that the lambda function throws a SQLException or DbException with the
+     * expected error code.
+     *
+     * @param expectedErrorCode SQL error code
+     * @param c lambda function
+     */
     protected void assertThrows(int expectedErrorCode, VoidCallable c) {
         try {
             c.call();

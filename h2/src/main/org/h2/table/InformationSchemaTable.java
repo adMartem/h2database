@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -2781,7 +2781,7 @@ public final class InformationSchemaTable extends MetaTable {
                         // GRANTEETYPE
                         rightType,
                         // GRANTEDROLE
-                        "",
+                        null,
                         // RIGHTS
                         r.getRights(),
                         // TABLE_SCHEMA
@@ -2798,11 +2798,11 @@ public final class InformationSchemaTable extends MetaTable {
                         // GRANTEDROLE
                         identifier(role.getName()),
                         // RIGHTS
-                        "",
+                        null,
                         // TABLE_SCHEMA
-                        "",
+                        null,
                         // TABLE_NAME
-                        ""
+                        null
                 );
             }
         }
@@ -3391,7 +3391,7 @@ public final class InformationSchemaTable extends MetaTable {
                 if (typeInfo.getDeclaredPrecision() >= 0L) {
                     declaredNumericPrecision = numericPrecision;
                 }
-                if (typeInfo.getDeclaredScale() != Integer.MIN_VALUE) {
+                if (typeInfo.getDeclaredScale() >= 0) {
                     declaredNumericScale = numericScale;
                 }
                 break;

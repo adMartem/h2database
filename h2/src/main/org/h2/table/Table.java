@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -16,6 +16,7 @@ import org.h2.api.ErrorCode;
 import org.h2.command.Prepared;
 import org.h2.command.query.AllColumnsForPlan;
 import org.h2.constraint.Constraint;
+import org.h2.constraint.Constraint.Type;
 import org.h2.engine.CastDataProvider;
 import org.h2.engine.Constants;
 import org.h2.engine.DbObject;
@@ -485,8 +486,8 @@ public abstract class Table extends SchemaObject {
                 throw DbException.get(ErrorCode.DUPLICATE_COLUMN_NAME_1, columnName);
             }
         }
-        rowFactory = database.getRowFactory().createRowFactory(database, database.getCompareMode(),
-                database.getMode(), database, columns, null);
+        rowFactory = database.getRowFactory().createRowFactory(database, database.getCompareMode(), database, columns,
+                null, false);
     }
 
     /**
@@ -1234,12 +1235,13 @@ public abstract class Table extends SchemaObject {
      * @param checkExisting true if existing rows must be checked during this
      *            call
      */
-    public void setCheckForeignKeyConstraints(SessionLocal session, boolean enabled,
-            boolean checkExisting) {
+    public void setCheckForeignKeyConstraints(SessionLocal session, boolean enabled, boolean checkExisting) {
         if (enabled && checkExisting) {
             if (constraints != null) {
                 for (Constraint c : constraints) {
-                    c.checkExistingData(session);
+                    if (c.getConstraintType() == Type.REFERENTIAL) {
+                        c.checkExistingData(session);
+                    }
                 }
             }
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -53,19 +53,11 @@ public final class MVSecondaryIndex extends MVIndex<SearchRow, Value> {
         }
         String mapName = "index." + getId();
         RowDataType keyType = getRowFactory().getRowDataType();
-        ValueDataType valueType = new ValueDataType();
         Transaction t = mvTable.getTransactionBegin();
-        dataMap = t.openMap(mapName, keyType, valueType);
+        dataMap = t.openMap(mapName, keyType, NullValueDataType.INSTANCE);
         dataMap.map.setVolatile(!table.isPersistData() || !indexType.isPersistent());
         if (!db.isStarting()) {
             dataMap.clear();
-        } else if (database.upgradeTo2_0()) {
-            for (IndexColumn c : columns) {
-                if (org.h2.value.DataType.rebuildIndexOnUpgradeTo2_0(c.column.getType().getValueType())) {
-                    dataMap.clear();
-                    break;
-                }
-            }
         }
         t.commit();
         if (!keyType.equals(dataMap.getKeyType())) {
@@ -161,11 +153,10 @@ public final class MVSecondaryIndex extends MVIndex<SearchRow, Value> {
 
     private MVMap<SearchRow,Value> openMap(String mapName) {
         RowDataType keyType = getRowFactory().getRowDataType();
-        ValueDataType valueType = new ValueDataType();
         MVMap.Builder<SearchRow,Value> builder = new MVMap.Builder<SearchRow,Value>()
                                                 .singleWriter()
                                                 .keyType(keyType)
-                                                .valueType(valueType);
+                                                .valueType(NullValueDataType.INSTANCE);
         MVMap<SearchRow, Value> map = database.getStore().getMvStore()
                 .openMap(mapName, builder);
         if (!keyType.equals(map.getKeyType())) {

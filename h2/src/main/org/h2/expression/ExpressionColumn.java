@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -24,7 +24,6 @@ import org.h2.table.Table;
 import org.h2.table.TableFilter;
 import org.h2.util.ParserUtil;
 import org.h2.util.StringUtils;
-import org.h2.value.ExtTypeInfoEnum;
 import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 import org.h2.value.ValueBigint;
@@ -32,7 +31,6 @@ import org.h2.value.ValueBoolean;
 import org.h2.value.ValueDecfloat;
 import org.h2.value.ValueDouble;
 import org.h2.value.ValueInteger;
-import org.h2.value.ValueNull;
 import org.h2.value.ValueNumeric;
 import org.h2.value.ValueReal;
 import org.h2.value.ValueSmallint;
@@ -297,15 +295,6 @@ public final class ExpressionColumn extends Expression {
                 throw DbException.get(ErrorCode.MUST_GROUP_BY_COLUMN_1, getTraceSQL());
             }
         }
-        /*
-         * ENUM values are stored as integers.
-         */
-        if (value != ValueNull.INSTANCE) {
-            TypeInfo type = column.getType();
-            if (type.getValueType() == Value.ENUM) {
-                return value.convertToEnum((ExtTypeInfoEnum) type.getExtTypeInfo(), session);
-            }
-        }
         return value;
     }
 
@@ -373,7 +362,7 @@ public final class ExpressionColumn extends Expression {
     }
 
     @Override
-    public boolean isAutoIncrement() {
+    public boolean isIdentity() {
         return column.isIdentity();
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -141,6 +141,9 @@ public class PageStoreTable extends RegularTable {
     public Index addIndex(SessionLocal session, String indexName, int indexId, IndexColumn[] cols, IndexType indexType,
             boolean create, String indexComment) {
         if (indexType.isSpatial()) {
+            if (session.isQuirksMode()) {
+                return null;
+            }
             throw DbException.getUnsupportedException("MV_STORE=FALSE && SPATIAL INDEX");
         }
         cols = prepareColumns(database, cols, indexType);

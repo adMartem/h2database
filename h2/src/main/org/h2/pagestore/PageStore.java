@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -869,17 +869,17 @@ public class PageStore implements CacheWriter {
 
     private void readStaticHeader() {
         file.seek(FileStore.HEADER_LENGTH);
-        Data page = Data.create(database, PAGE_SIZE_MIN - FileStore.HEADER_LENGTH, false);
+        Data page = Data.create(database, PAGE_SIZE_MIN - FileStore.HEADER_LENGTH);
         file.readFully(page.getBytes(), 0, PAGE_SIZE_MIN - FileStore.HEADER_LENGTH);
         readCount++;
         setPageSize(page.readInt());
         int writeVersion = page.readByte();
         int readVersion = page.readByte();
-        if (readVersion > READ_VERSION) {
+        if (readVersion != READ_VERSION) {
             throw DbException.get(
                     ErrorCode.FILE_VERSION_ERROR_1, fileName);
         }
-        if (writeVersion > WRITE_VERSION) {
+        if (writeVersion != WRITE_VERSION) {
             close();
             database.setReadOnly(true);
             accessMode = "r";
@@ -940,7 +940,7 @@ public class PageStore implements CacheWriter {
     }
 
     private void writeStaticHeader() {
-        Data page = Data.create(database, pageSize - FileStore.HEADER_LENGTH, false);
+        Data page = Data.create(database, pageSize - FileStore.HEADER_LENGTH);
         page.writeInt(pageSize);
         page.writeByte((byte) WRITE_VERSION);
         page.writeByte((byte) READ_VERSION);
@@ -1280,7 +1280,7 @@ public class PageStore implements CacheWriter {
      * @return the data page.
      */
     public Data createData() {
-        return Data.create(database, pageSize, false);
+        return Data.create(database, pageSize);
     }
 
     /**

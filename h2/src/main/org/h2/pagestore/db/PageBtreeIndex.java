@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -73,14 +73,6 @@ public class PageBtreeIndex extends PageIndex {
             rowCount = root.getRowCount();
             if (rowCount == 0 && store.isRecoveryRunning()) {
                 needRebuild = true;
-            } else if (database.upgradeTo2_0()) {
-                for (IndexColumn c : columns) {
-                    if (org.h2.value.DataType.rebuildIndexOnUpgradeTo2_0(c.column.getType().getValueType())) {
-                        removeAllRows();
-                        needRebuild = true;
-                        break;
-                    }
-                }
             }
         }
         this.needRebuild = needRebuild;
@@ -370,7 +362,7 @@ public class PageBtreeIndex extends PageIndex {
             row.setKey(key);
             for (Column col : columns) {
                 int idx = col.getColumnId();
-                row.setValue(idx, data.readValue());
+                row.setValue(idx, data.readValue(col.getType()));
             }
             return row;
         }
@@ -408,17 +400,15 @@ public class PageBtreeIndex extends PageIndex {
     /**
      * Get the size of a row (only the part that is stored in the index).
      *
-     * @param dummy a dummy data page to calculate the size
      * @param row the row
      * @param onlyPosition whether only the position of the row is stored
      * @return the number of bytes
      */
-    int getRowSize(Data dummy, SearchRow row, boolean onlyPosition) {
+    int getRowSize(SearchRow row, boolean onlyPosition) {
         int rowsize = Data.getVarLongLen(row.getKey());
         if (!onlyPosition) {
             for (Column col : columns) {
-                Value v = row.getValue(col.getColumnId());
-                rowsize += dummy.getValueLen(v);
+                rowsize += Data.getValueLen(row.getValue(col.getColumnId()));
             }
         }
         return rowsize;

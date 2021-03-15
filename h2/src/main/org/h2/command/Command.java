@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -151,9 +151,8 @@ public abstract class Command implements CommandInterface {
 
     @Override
     public void stop() {
-        if (!isTransactional()) {
-            session.commit(true);
-        } else if (session.getAutoCommit()) {
+        commitIfNonTransactional();
+        if (isTransactional() && session.getAutoCommit()) {
             session.commit(false);
         }
         if (trace.isInfoEnabled() && startTimeNanos != 0L) {
@@ -240,6 +239,7 @@ public abstract class Command implements CommandInterface {
         boolean callStop = true;
         //noinspection SynchronizationOnLocalVariableOrMethodParameter
         synchronized (sync) {
+            commitIfNonTransactional();
             SessionLocal.Savepoint rollback = session.setSavepoint();
             session.startStatementWithinTransaction(this);
             DbException ex = null;
@@ -296,6 +296,16 @@ public abstract class Command implements CommandInterface {
                         ex.addSuppressed(nested);
                     }
                 }
+            }
+        }
+    }
+
+    private void commitIfNonTransactional() {
+        if (!isTransactional()) {
+            boolean autoCommit = session.getAutoCommit();
+            session.commit(true);
+            if (!autoCommit && session.getAutoCommit()) {
+                session.begin();
             }
         }
     }

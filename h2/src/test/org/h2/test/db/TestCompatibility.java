@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -58,6 +58,7 @@ public class TestCompatibility extends TestDb {
         conn.close();
         testIdentifiers();
         testIdentifiersCaseInResultSet();
+        testDatabaseToLowerParser();
         testOldInformationSchema();
         deleteDb("compatibility");
 
@@ -212,13 +213,6 @@ public class TestCompatibility extends TestDb {
         stat.execute("CALL SYSDATE");
         stat.execute("CALL TODAY");
 
-        stat.execute("DROP TABLE TEST IF EXISTS");
-        stat.execute("CREATE TABLE TEST(ID INT)");
-        stat.execute("INSERT INTO TEST VALUES(1)");
-        PreparedStatement prep = conn.prepareStatement(
-                "SELECT LIMIT ? 1 ID FROM TEST");
-        prep.setInt(1, 2);
-        prep.executeQuery();
         stat.execute("DROP TABLE TEST IF EXISTS");
     }
 
@@ -760,6 +754,17 @@ public class TestCompatibility extends TestDb {
             rs = stat.executeQuery("SELECT a FROM (SELECT 1) t(A)");
             md = rs.getMetaData();
             assertEquals("A", md.getColumnName(1));
+        } finally {
+            deleteDb("compatibility");
+        }
+    }
+
+    private void testDatabaseToLowerParser() throws SQLException {
+        try (Connection conn = getConnection("compatibility;DATABASE_TO_LOWER=TRUE")) {
+            Statement stat = conn.createStatement();
+            ResultSet rs = stat.executeQuery("SELECT 0x1234567890AbCdEf");
+            rs.next();
+            assertEquals(0x1234567890ABCDEFL, rs.getLong(1));
         } finally {
             deleteDb("compatibility");
         }

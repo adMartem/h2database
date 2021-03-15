@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.StringReader;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.net.Socket;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +49,7 @@ import org.h2.util.ScriptReader;
 import org.h2.util.StringUtils;
 import org.h2.util.TimeZoneProvider;
 import org.h2.util.Utils;
+import org.h2.util.Utils10;
 import org.h2.value.CaseInsensitiveMap;
 import org.h2.value.TypeInfo;
 import org.h2.value.Value;
@@ -101,7 +104,7 @@ public final class PgServerThread implements Runnable {
     private DataInputStream dataIn;
     private OutputStream out;
     private int messageType;
-    private ByteArrayOutputStream outBuffer;
+    private ByteArrayOutputStream outBuffer = new ByteArrayOutputStream();
     private DataOutputStream dataOut;
     private Thread thread;
     private boolean initDone;
@@ -154,7 +157,7 @@ public final class PgServerThread implements Runnable {
             }
             buff.write(x);
         }
-        return new String(buff.toByteArray(), getEncoding());
+        return Utils10.byteArrayOutputStreamToString(buff, getEncoding());
     }
 
     private int readInt() throws IOException {
@@ -657,7 +660,7 @@ public final class PgServerThread implements Runnable {
                 }
                 baos.write('}');
                 writeInt(baos.size());
-                write(baos.toByteArray());
+                write(baos);
                 break;
             default:
                 byte[] data = v.getString().getBytes(getEncoding());
@@ -669,7 +672,7 @@ public final class PgServerThread implements Runnable {
             switch (pgType) {
             case PgServer.PG_TYPE_BOOL:
                 writeInt(1);
-                dataOut.writeByte(v.getBoolean() ? 't' : 'f');
+                dataOut.writeByte(v.getBoolean() ? 1 : 0);
                 break;
             case PgServer.PG_TYPE_INT2:
                 writeInt(2);
@@ -690,6 +693,9 @@ public final class PgServerThread implements Runnable {
             case PgServer.PG_TYPE_FLOAT8:
                 writeInt(8);
                 dataOut.writeDouble(v.getDouble());
+                break;
+            case PgServer.PG_TYPE_NUMERIC:
+                writeNumericBinary(v.getBigDecimal());
                 break;
             case PgServer.PG_TYPE_BYTEA: {
                 byte[] data = v.getBytesNoCopy();
@@ -734,6 +740,68 @@ public final class PgServerThread implements Runnable {
         }
     }
 
+    private static final int[] POWERS10 = {1, 10, 100, 1000, 10000};
+    private static final int MAX_GROUP_SCALE = 4;
+    private static final int MAX_GROUP_SIZE = POWERS10[4];
+
+    private static int divide(BigInteger[] unscaled, int divisor) {
+        BigInteger[] bi = unscaled[0].divideAndRemainder(BigInteger.valueOf(divisor));
+        unscaled[0] = bi[0];
+        return bi[1].intValue();
+    }
+
+    // https://www.npgsql.org/dev/types.html
+    // https://github.com/npgsql/npgsql/blob/8a479081f707784b5040747b23102c3d6371b9d3/
+    //         src/Npgsql/TypeHandlers/NumericHandlers/NumericHandler.cs#L166
+    private void writeNumericBinary(BigDecimal value) throws IOException {
+        int weight = 0;
+        List<Integer> groups = new ArrayList<>();
+        int scale = value.scale();
+        int signum = value.signum();
+        if (signum != 0) {
+            BigInteger[] unscaled = {null};
+            if (scale < 0) {
+                unscaled[0] = value.setScale(0).unscaledValue();
+                scale = 0;
+            } else {
+                unscaled[0] = value.unscaledValue();
+            }
+            if (signum < 0) {
+                unscaled[0] = unscaled[0].negate();
+            }
+            weight = -scale / MAX_GROUP_SCALE - 1;
+            int remainder = 0;
+            int scaleChunk = scale % MAX_GROUP_SCALE;
+            if (scaleChunk > 0) {
+                remainder = divide(unscaled, POWERS10[scaleChunk]) * POWERS10[MAX_GROUP_SCALE - scaleChunk];
+                if (remainder != 0) {
+                    weight--;
+                }
+            }
+            if (remainder == 0) {
+                while ((remainder = divide(unscaled, MAX_GROUP_SIZE)) == 0) {
+                    weight++;
+                }
+            }
+            groups.add(remainder);
+            while (unscaled[0].signum() != 0) {
+                groups.add(divide(unscaled, MAX_GROUP_SIZE));
+            }
+        }
+        int groupCount = groups.size();
+        if (groupCount + weight > Short.MAX_VALUE || scale > Short.MAX_VALUE) {
+            throw DbException.get(ErrorCode.NUMERIC_VALUE_OUT_OF_RANGE_1, value.toString());
+        }
+        writeInt(8 + groupCount * 2);
+        writeShort(groupCount);
+        writeShort(groupCount + weight);
+        writeShort(signum < 0 ? 16384 : 0);
+        writeShort(scale);
+        for (int i = groupCount - 1; i >= 0; i--) {
+            writeShort(groups.get(i));
+        }
+    }
+
     private void writeTimeBinary(long m, int numBytes) throws IOException {
         writeInt(numBytes);
         if (INTEGER_DATE_TYPES) {
@@ -767,7 +835,12 @@ public final class PgServerThread implements Runnable {
 
     private void setParameter(ArrayList<? extends ParameterInterface> parameters, int pgType, int i, int[] formatCodes)
             throws IOException {
-        boolean text = (i >= formatCodes.length) || (formatCodes[i] == 0);
+        boolean text = true;
+        if (formatCodes.length == 1) {
+            text = formatCodes[0] == 0;
+        } else if (i < formatCodes.length) {
+            text = formatCodes[i] == 0;
+        }
         int paramLen = readInt();
         Value value;
         if (paramLen == -1) {
@@ -1083,7 +1156,9 @@ public final class PgServerThread implements Runnable {
         sendParameterStatus("session_authorization", userName);
         sendParameterStatus("standard_conforming_strings", "off");
         sendParameterStatus("TimeZone", pgTimeZone(timeZone.getId()));
-        sendParameterStatus("integer_datetimes", INTEGER_DATE_TYPES ? "on" : "off");
+        // Don't inline, see https://bugs.eclipse.org/bugs/show_bug.cgi?id=569498
+        String value = INTEGER_DATE_TYPES ? "on" : "off";
+        sendParameterStatus("integer_datetimes", value);
         sendBackendKeyData();
         sendReadyForQuery();
     }
@@ -1122,24 +1197,30 @@ public final class PgServerThread implements Runnable {
         dataOut.write(data);
     }
 
+    private void write(ByteArrayOutputStream baos) throws IOException {
+        baos.writeTo(dataOut);
+    }
+
     private void write(int b) throws IOException {
         dataOut.write(b);
     }
 
     private void startMessage(int newMessageType) {
         this.messageType = newMessageType;
-        outBuffer = new ByteArrayOutputStream();
+        if (outBuffer.size() <= 65_536) {
+            outBuffer.reset();
+        } else {
+            outBuffer = new ByteArrayOutputStream();
+        }
         dataOut = new DataOutputStream(outBuffer);
     }
 
     private void sendMessage() throws IOException {
         dataOut.flush();
-        byte[] buff = outBuffer.toByteArray();
-        int len = buff.length;
         dataOut = new DataOutputStream(out);
-        dataOut.write(messageType);
-        dataOut.writeInt(len + 4);
-        dataOut.write(buff);
+        write(messageType);
+        writeInt(outBuffer.size() + 4);
+        write(outBuffer);
         dataOut.flush();
     }
 

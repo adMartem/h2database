@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -173,7 +173,7 @@ public class TestValue extends TestDb {
         testDataType(TypeInfo.TYPE_VARBINARY, byte[].class);
         testDataType(TypeInfo.TYPE_UUID, UUID.class);
         testDataType(TypeInfo.TYPE_NULL, Void.class);
-        testDataType(TypeInfo.TYPE_NUMERIC, BigDecimal.class);
+        testDataType(TypeInfo.TYPE_NUMERIC_FLOATING_POINT, BigDecimal.class);
         testDataType(TypeInfo.TYPE_DATE, Date.class);
         testDataType(TypeInfo.TYPE_TIME, Time.class);
         testDataType(TypeInfo.TYPE_TIMESTAMP, Timestamp.class);
@@ -200,6 +200,14 @@ public class TestValue extends TestDb {
                 Double.POSITIVE_INFINITY,
                 Double.NaN
         };
+        int[] signum = {
+                -1,
+                -1,
+                0,
+                1,
+                1,
+                0
+        };
         Value[] values = new Value[d.length];
         for (int i = 0; i < d.length; i++) {
             Value v = useFloat ? (Value) ValueReal.get((float) d[i])
@@ -207,7 +215,7 @@ public class TestValue extends TestDb {
             values[i] = v;
             assertTrue(values[i].compareTypeSafe(values[i], null, null) == 0);
             assertTrue(v.equals(v));
-            assertEquals(Integer.compare(i, 2), v.getSignum());
+            assertEquals(signum[i], v.getSignum());
         }
         for (int i = 0; i < d.length - 1; i++) {
             assertTrue(values[i].compareTypeSafe(values[i+1], null, null) < 0);
@@ -378,8 +386,6 @@ public class TestValue extends TestDb {
 
         testTypeInfoCheck(Value.REAL, 24, 0, 15, TypeInfo.TYPE_REAL, TypeInfo.getTypeInfo(Value.REAL));
         testTypeInfoCheck(Value.DOUBLE, 53, 0, 24, TypeInfo.TYPE_DOUBLE, TypeInfo.getTypeInfo(Value.DOUBLE));
-        testTypeInfoCheck(Value.NUMERIC, MAX_NUMERIC_PRECISION, ValueNumeric.MAXIMUM_SCALE, MAX_NUMERIC_PRECISION + 2,
-                TypeInfo.TYPE_NUMERIC, TypeInfo.getTypeInfo(Value.NUMERIC));
         testTypeInfoCheck(Value.NUMERIC, MAX_NUMERIC_PRECISION, MAX_NUMERIC_PRECISION / 2, MAX_NUMERIC_PRECISION + 2,
                 TypeInfo.TYPE_NUMERIC_FLOATING_POINT);
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -32,7 +32,7 @@ import org.h2.util.Utils;
  */
 public final class Engine {
 
-    private static final Map<String, Database> DATABASES = new HashMap<>();
+    private static final Map<String, DatabaseHolder> DATABASES = new HashMap<>();
 
     private static volatile long WRONG_PASSWORD_DELAY = SysProperties.DELAY_WRONG_PASSWORD_MIN;
 
@@ -52,13 +52,17 @@ public final class Engine {
         boolean openNew = ci.getProperty("OPEN_NEW", false);
         boolean opened = false;
         User user = null;
-        synchronized (DATABASES) {
-            if (openNew || ci.isUnnamedInMemory()) {
-                database = null;
-            } else {
-                database = DATABASES.get(name);
+        DatabaseHolder databaseHolder;
+        if (!ci.isUnnamedInMemory()) {
+            synchronized (DATABASES) {
+                databaseHolder = DATABASES.computeIfAbsent(name, (key) -> new DatabaseHolder());
             }
-            if (database == null) {
+        } else {
+            databaseHolder = new DatabaseHolder();
+        }
+        synchronized (databaseHolder) {
+            database = databaseHolder.database;
+            if (database == null || openNew) {
                 if (ci.isPersistent()) {
                     String p = ci.getProperty("MV_STORE");
                     String fileName;
@@ -93,12 +97,14 @@ public final class Engine {
                 }
                 database = new Database(ci, cipher);
                 opened = true;
-                checkUserExists: {
-                    for (RightOwner rightOwner : database.getAllUsersAndRoles()) {
-                        if (rightOwner instanceof User) {
-                            break checkUserExists;
-                        }
+                boolean found = false;
+                for (RightOwner rightOwner : database.getAllUsersAndRoles()) {
+                    if (rightOwner instanceof User) {
+                        found = true;
+                        break;
                     }
+                }
+                if (!found) {
                     // users is the last thing we add, so if no user is around,
                     // the database is new (or not initialized correctly)
                     user = new User(database, database.allocateObjectId(), ci.getUserName(), false);
@@ -106,11 +112,10 @@ public final class Engine {
                     user.setUserPasswordHash(ci.getUserPasswordHash());
                     database.setMasterUser(user);
                 }
-                if (!ci.isUnnamedInMemory()) {
-                    DATABASES.put(name, database);
-                }
+                databaseHolder.database = database;
             }
         }
+
         if (opened) {
             // start the thread when already synchronizing on the database
             // otherwise a deadlock can occur when the writer thread
@@ -210,7 +215,7 @@ public final class Engine {
         }
     }
 
-    private static synchronized SessionLocal openSession(ConnectionInfo ci) {
+    private static SessionLocal openSession(ConnectionInfo ci) {
         boolean ifExists = ci.removeProperty("IFEXISTS", false);
         boolean forbidCreation = ci.removeProperty("FORBID_CREATION", false);
         boolean ignoreUnknownSetting = ci.removeProperty(
@@ -399,4 +404,11 @@ public final class Engine {
     private Engine() {
     }
 
+    private static final class DatabaseHolder {
+
+        DatabaseHolder() {
+        }
+
+        volatile Database database;
+    }
 }

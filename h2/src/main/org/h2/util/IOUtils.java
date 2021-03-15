@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -320,20 +320,6 @@ public class IOUtils {
         } catch (Exception e) {
             throw DataUtils.convertToIOException(e);
         }
-    }
-
-    /**
-     * Create a buffered reader to read from an input stream using the UTF-8
-     * format. If the input stream is null, this method returns null. The
-     * InputStreamReader that is used here is not exact, that means it may read
-     * some additional bytes when buffering.
-     *
-     * @param in the input stream or null
-     * @return the reader
-     */
-    public static Reader getBufferedReader(InputStream in) {
-        return in == null ? null : new BufferedReader(
-                new InputStreamReader(in, StandardCharsets.UTF_8));
     }
 
     /**

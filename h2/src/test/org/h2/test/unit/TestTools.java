@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2020 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -60,6 +60,7 @@ import org.h2.tools.SimpleResultSet;
 import org.h2.tools.SimpleResultSet.SimpleArray;
 import org.h2.util.JdbcUtils;
 import org.h2.util.Task;
+import org.h2.util.Utils10;
 import org.h2.value.ValueUuid;
 
 /**
@@ -582,14 +583,14 @@ public class TestTools extends TestDb {
         deleteDb("testDeleteFiles");
     }
 
-    private void testServerMain() throws SQLException {
+    private void testServerMain() throws Exception {
         testNonSSL();
-        if (!config.travis) {
+        if (!config.ci) {
             testSSL();
         }
     }
 
-    private void testNonSSL() throws SQLException {
+    private void testNonSSL() throws Exception {
         String result;
         Connection conn;
 
@@ -617,7 +618,7 @@ public class TestTools extends TestDb {
         }
     }
 
-    private void testSSL() throws SQLException {
+    private void testSSL() throws Exception {
         String result;
         Connection conn;
 
@@ -665,9 +666,9 @@ public class TestTools extends TestDb {
         }
     }
 
-    private String runServer(int exitCode, String... args) {
+    private String runServer(int exitCode, String... args) throws Exception {
         ByteArrayOutputStream buff = new ByteArrayOutputStream();
-        PrintStream ps = new PrintStream(buff);
+        PrintStream ps = new PrintStream(buff, false, "UTF-8");
         if (server != null) {
             remainingServers.add(server);
         }
@@ -682,8 +683,7 @@ public class TestTools extends TestDb {
         }
         assertEquals(exitCode, result);
         ps.flush();
-        String s = new String(buff.toByteArray());
-        return s;
+        return Utils10.byteArrayOutputStreamToString(buff, StandardCharsets.UTF_8);
     }
 
     private void shutdownServers() {
@@ -942,7 +942,7 @@ public class TestTools extends TestDb {
 
     }
 
-    private void testScriptRunscript() throws SQLException {
+    private void testScriptRunscript() throws Exception {
         String url = getURL("jdbc:h2:" + getBaseDir() + "/testScriptRunscript",
                 true);
         String user = "sa", password = "abc";
@@ -979,10 +979,10 @@ public class TestTools extends TestDb {
                 "-quiet");
         RunScript tool = new RunScript();
         ByteArrayOutputStream buff = new ByteArrayOutputStream();
-        tool.setOut(new PrintStream(buff));
+        tool.setOut(new PrintStream(buff, false, "UTF-8"));
         tool.runTool("-url", url, "-user", user, "-password", password,
                 "-script", fileName + ".txt", "-showResults");
-        assertContains(buff.toString(), "Hello");
+        assertContains(Utils10.byteArrayOutputStreamToString(buff, StandardCharsets.UTF_8), "Hello");
 
 
         // test parsing of BLOCKSIZE option
