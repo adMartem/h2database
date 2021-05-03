@@ -17,7 +17,5 @@
 .checkstyle
 /temp/
 /h2web/
-*.dmp
-*.phd
-javacore.*
-*.trc
+.pmd
+docs/html/testOutput.html

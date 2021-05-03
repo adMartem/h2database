@@ -1,18 +1,18 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.api;
 
 import java.io.Serializable;
 import org.h2.util.DateTimeUtils;
-import org.h2.util.StringUtils;
+import org.h2.value.ValueTimestampTimeZone;
 
 /**
- * How we expose "TIMESTAMP WITH TIMEZONE" in our ResultSets.
+ * How we expose "TIMESTAMP WITH TIME ZONE" in our ResultSets.
  */
-public class TimestampWithTimeZone implements Serializable, Cloneable {
+public final class TimestampWithTimeZone implements Serializable, Cloneable {
 
     /**
      * The serial version UID.
@@ -29,14 +29,20 @@ public class TimestampWithTimeZone implements Serializable, Cloneable {
      */
     private final long timeNanos;
     /**
-     * Time zone offset from UTC in minutes, range of -12hours to +12hours
+     * Time zone offset from UTC in seconds, range of -18 hours to +18 hours. This
+     * range is compatible with OffsetDateTime from JSR-310.
      */
-    private final short timeZoneOffsetMins;
+    private final int timeZoneOffsetSeconds;
 
+    @Deprecated
     public TimestampWithTimeZone(long dateValue, long timeNanos, short timeZoneOffsetMins) {
+        this(dateValue, timeNanos, timeZoneOffsetMins * 60);
+    }
+
+    public TimestampWithTimeZone(long dateValue, long timeNanos, int timeZoneOffsetSeconds) {
         this.dateValue = dateValue;
         this.timeNanos = timeNanos;
-        this.timeZoneOffsetMins = timeZoneOffsetMins;
+        this.timeZoneOffsetSeconds = timeZoneOffsetSeconds;
     }
 
     /**
@@ -104,68 +110,25 @@ public class TimestampWithTimeZone implements Serializable, Cloneable {
      *
      * @return the offset
      */
+    @Deprecated
     public short getTimeZoneOffsetMins() {
-        return timeZoneOffsetMins;
+        return (short) (timeZoneOffsetSeconds / 60);
+    }
+
+    /**
+     * The time zone offset in seconds.
+     *
+     * @return the offset
+     */
+    public int getTimeZoneOffsetSeconds() {
+        return timeZoneOffsetSeconds;
     }
 
     @Override
     public String toString() {
-        StringBuilder buff = new StringBuilder();
-        int y = DateTimeUtils.yearFromDateValue(dateValue);
-        int month = DateTimeUtils.monthFromDateValue(dateValue);
-        int d = DateTimeUtils.dayFromDateValue(dateValue);
-        if (y > 0 && y < 10000) {
-            StringUtils.appendZeroPadded(buff, 4, y);
-        } else {
-            buff.append(y);
-        }
-        buff.append('-');
-        StringUtils.appendZeroPadded(buff, 2, month);
-        buff.append('-');
-        StringUtils.appendZeroPadded(buff, 2, d);
-        buff.append(' ');
-        long nanos = timeNanos;
-        long ms = nanos / 1000000;
-        nanos -= ms * 1000000;
-        long s = ms / 1000;
-        ms -= s * 1000;
-        long min = s / 60;
-        s -= min * 60;
-        long h = min / 60;
-        min -= h * 60;
-        StringUtils.appendZeroPadded(buff, 2, h);
-        buff.append(':');
-        StringUtils.appendZeroPadded(buff, 2, min);
-        buff.append(':');
-        StringUtils.appendZeroPadded(buff, 2, s);
-        buff.append('.');
-        int start = buff.length();
-        StringUtils.appendZeroPadded(buff, 3, ms);
-        if (nanos > 0) {
-            StringUtils.appendZeroPadded(buff, 6, nanos);
-        }
-        for (int i = buff.length() - 1; i > start; i--) {
-            if (buff.charAt(i) != '0') {
-                break;
-            }
-            buff.deleteCharAt(i);
-        }
-        short tz = timeZoneOffsetMins;
-        if (tz < 0) {
-            buff.append('-');
-            tz = (short) -tz;
-        } else {
-            buff.append('+');
-        }
-        int hours = tz / 60;
-        tz -= hours * 60;
-        int mins = tz;
-        StringUtils.appendZeroPadded(buff, 2, hours);
-        if (mins != 0) {
-            buff.append(':');
-            StringUtils.appendZeroPadded(buff, 2, mins);
-        }
-        return buff.toString();
+        StringBuilder builder = new StringBuilder(ValueTimestampTimeZone.MAXIMUM_PRECISION);
+        DateTimeUtils.appendTimestampTimeZone(builder, dateValue, timeNanos, timeZoneOffsetSeconds);
+        return builder.toString();
     }
 
     @Override
@@ -174,7 +137,7 @@ public class TimestampWithTimeZone implements Serializable, Cloneable {
         int result = 1;
         result = prime * result + (int) (dateValue ^ (dateValue >>> 32));
         result = prime * result + (int) (timeNanos ^ (timeNanos >>> 32));
-        result = prime * result + timeZoneOffsetMins;
+        result = prime * result + timeZoneOffsetSeconds;
         return result;
     }
 
@@ -196,7 +159,7 @@ public class TimestampWithTimeZone implements Serializable, Cloneable {
         if (timeNanos != other.timeNanos) {
             return false;
         }
-        if (timeZoneOffsetMins != other.timeZoneOffsetMins) {
+        if (timeZoneOffsetSeconds != other.timeZoneOffsetSeconds) {
             return false;
         }
         return true;

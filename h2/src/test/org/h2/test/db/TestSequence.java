@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -15,12 +15,13 @@ import java.util.Collections;
 import java.util.List;
 import org.h2.api.Trigger;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 import org.h2.util.Task;
 
 /**
  * Tests the sequence feature of this database.
  */
-public class TestSequence extends TestBase {
+public class TestSequence extends TestDb {
 
     /**
      * Run just this test.
@@ -34,6 +35,7 @@ public class TestSequence extends TestBase {
     @Override
     public void test() throws Exception {
         testConcurrentCreate();
+        testConcurrentNextAndCurrentValue();
         testSchemaSearchPath();
         testAlterSequenceColumn();
         testAlterSequence();
@@ -50,7 +52,7 @@ public class TestSequence extends TestBase {
 
     private void testConcurrentCreate() throws Exception {
         deleteDb("sequence");
-        final String url = getURL("sequence;MULTI_THREADED=1;LOCK_TIMEOUT=2000", true);
+        final String url = getURL("sequence;LOCK_TIMEOUT=2000", true);
         Connection conn = getConnection(url);
         Task[] tasks = new Task[2];
         try {
@@ -94,6 +96,66 @@ public class TestSequence extends TestBase {
             Thread.sleep(1000);
             for (Task t : tasks) {
                 t.get();
+            }
+        } finally {
+            for (Task t : tasks) {
+                t.join();
+            }
+            conn.close();
+        }
+    }
+
+    private void testConcurrentNextAndCurrentValue() throws Exception {
+        deleteDb("sequence");
+        final String url = getURL("sequence", true);
+        Connection conn = getConnection(url);
+        Task[] tasks = new Task[2];
+        try {
+            Statement stat = conn.createStatement();
+            stat.execute("CREATE SEQUENCE SEQ1");
+            stat.execute("CREATE SEQUENCE SEQ2");
+            for (int i = 0; i < tasks.length; i++) {
+                tasks[i] = new Task() {
+                    @Override
+                    public void call() throws Exception {
+                        try (Connection conn = getConnection(url)) {
+                            PreparedStatement next1 = conn.prepareStatement("CALL NEXT VALUE FOR SEQ1");
+                            PreparedStatement next2 = conn.prepareStatement("CALL NEXT VALUE FOR SEQ2");
+                            PreparedStatement current1 = conn.prepareStatement("CALL CURRENT VALUE FOR SEQ1");
+                            PreparedStatement current2 = conn.prepareStatement("CALL CURRENT VALUE FOR SEQ2");
+                            while (!stop) {
+                                long v1, v2;
+                                try (ResultSet rs = next1.executeQuery()) {
+                                    rs.next();
+                                    v1 = rs.getLong(1);
+                                }
+                                try (ResultSet rs = next2.executeQuery()) {
+                                    rs.next();
+                                    v2 = rs.getLong(1);
+                                }
+                                try (ResultSet rs = current1.executeQuery()) {
+                                    rs.next();
+                                    if (v1 != rs.getLong(1)) {
+                                        throw new RuntimeException("Unexpected CURRENT VALUE FOR SEQ1");
+                                    }
+                                }
+                                try (ResultSet rs = current2.executeQuery()) {
+                                    rs.next();
+                                    if (v2 != rs.getLong(1)) {
+                                        throw new RuntimeException("Unexpected CURRENT VALUE FOR SEQ2");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }.execute();
+            }
+            Thread.sleep(1000);
+            for (Task t : tasks) {
+                Exception e = t.getException();
+                if (e != null) {
+                    throw new AssertionError(e.getMessage());
+                }
             }
         } finally {
             for (Task t : tasks) {
@@ -312,23 +374,23 @@ public class TestSequence extends TestBase {
                 "minvalue 2 maxvalue 9 nocycle cache 2");
         stat.execute("create sequence d nomaxvalue no minvalue no cache nocycle");
         stat.execute("create sequence e cache 1");
-        List<String> script = new ArrayList<String>();
+        List<String> script = new ArrayList<>();
         ResultSet rs = stat.executeQuery("script nodata");
         while (rs.next()) {
             script.add(rs.getString(1));
         }
         Collections.sort(script);
-        assertEquals("CREATE SEQUENCE PUBLIC.A START WITH 1;", script.get(0));
-        assertEquals("CREATE SEQUENCE PUBLIC.B START " +
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"A\" START WITH 1;", script.get(0));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"B\" START " +
                 "WITH 5 INCREMENT BY 2 " +
-                "MINVALUE 3 MAXVALUE 7 CYCLE CACHE 1;", script.get(1));
-        assertEquals("CREATE SEQUENCE PUBLIC.C START " +
+                "MINVALUE 3 MAXVALUE 7 CYCLE NO CACHE;", script.get(1));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"C\" START " +
                 "WITH 3 MINVALUE 2 MAXVALUE 9 CACHE 2;",
                 script.get(2));
-        assertEquals("CREATE SEQUENCE PUBLIC.D START " +
-                "WITH 1 CACHE 1;", script.get(3));
-        assertEquals("CREATE SEQUENCE PUBLIC.E START " +
-                "WITH 1 CACHE 1;", script.get(4));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"D\" START " +
+                "WITH 1 NO CACHE;", script.get(3));
+        assertEquals("CREATE SEQUENCE \"PUBLIC\".\"E\" START " +
+                "WITH 1 NO CACHE;", script.get(4));
         conn.close();
     }
 

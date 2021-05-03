@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -18,8 +18,9 @@ import java.util.Calendar;
 import java.util.GregorianCalendar;
 import java.util.SimpleTimeZone;
 import java.util.TimeZone;
-
+import org.h2.store.Data;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
 import org.h2.test.unit.TestDate;
 import org.h2.util.DateTimeUtils;
 import org.h2.value.ValueTimestamp;
@@ -27,7 +28,7 @@ import org.h2.value.ValueTimestamp;
 /**
  * Tests the date transfer and storage.
  */
-public class TestDateStorage extends TestBase {
+public class TestDateStorage extends TestDb {
 
     /**
      * Run just this test.
@@ -35,7 +36,6 @@ public class TestDateStorage extends TestBase {
      * @param a ignored
      */
     public static void main(String... a) throws Exception {
-        System.setProperty("h2.storeLocalTime", "true");
         TestBase.createCaller().init().test();
     }
 
@@ -43,7 +43,6 @@ public class TestDateStorage extends TestBase {
     public void test() throws SQLException {
         deleteDb(getTestName());
         testDateTimeTimestampWithCalendar();
-        testMoveDatabaseToAnotherTimezone();
         testAllTimeZones();
         testCurrentTimeZone();
     }
@@ -57,13 +56,16 @@ public class TestDateStorage extends TestBase {
         Calendar utcCalendar = new GregorianCalendar(new SimpleTimeZone(0, "Z"));
         TimeZone old = TimeZone.getDefault();
         DateTimeUtils.resetCalendar();
+        Data.resetCalendar();
         TimeZone.setDefault(TimeZone.getTimeZone("PST"));
         try {
+            // 2010-03-14T02:15:00Z
             Timestamp ts1 = Timestamp.valueOf("2010-03-13 18:15:00");
             Time t1 = new Time(ts1.getTime());
             Date d1 = new Date(ts1.getTime());
             // when converted to UTC, this is 03:15, which doesn't actually
             // exist because of summer time change at that day
+            // 2010-03-14T03:15:00Z
             Timestamp ts2 = Timestamp.valueOf("2010-03-13 19:15:00");
             Time t2 = new Time(ts2.getTime());
             Date d2 = new Date(ts2.getTime());
@@ -86,26 +88,26 @@ public class TestDateStorage extends TestBase {
             prep.execute();
             rs = stat.executeQuery("select * from ts order by x");
             rs.next();
-            assertEquals("2010-03-14 02:15:00.0",
+            assertEquals("2010-03-14 02:15:00",
                     rs.getString(1));
             assertEquals("2010-03-13 18:15:00.0",
                     rs.getTimestamp(1, utcCalendar).toString());
             assertEquals("2010-03-14 03:15:00.0",
                     rs.getTimestamp(1).toString());
-            assertEquals("2010-03-14 02:15:00.0",
+            assertEquals("2010-03-14 02:15:00",
                     rs.getString("x"));
             assertEquals("2010-03-13 18:15:00.0",
                     rs.getTimestamp("x", utcCalendar).toString());
             assertEquals("2010-03-14 03:15:00.0",
                     rs.getTimestamp("x").toString());
             rs.next();
-            assertEquals("2010-03-14 03:15:00.0",
+            assertEquals("2010-03-14 03:15:00",
                     rs.getString(1));
             assertEquals("2010-03-13 19:15:00.0",
                     rs.getTimestamp(1, utcCalendar).toString());
             assertEquals("2010-03-14 03:15:00.0",
                     rs.getTimestamp(1).toString());
-            assertEquals("2010-03-14 03:15:00.0",
+            assertEquals("2010-03-14 03:15:00",
                     rs.getString("x"));
             assertEquals("2010-03-13 19:15:00.0",
                     rs.getTimestamp("x", utcCalendar).toString());
@@ -144,78 +146,11 @@ public class TestDateStorage extends TestBase {
         } finally {
             TimeZone.setDefault(old);
             DateTimeUtils.resetCalendar();
+            Data.resetCalendar();
         }
         stat.execute("drop table ts");
         stat.execute("drop table t");
         stat.execute("drop table d");
-        conn.close();
-    }
-
-    private void testMoveDatabaseToAnotherTimezone() throws SQLException {
-        if (config.memory) {
-            return;
-        }
-        if (config.mvStore) {
-            return;
-        }
-        String db = getTestName() + ";LOG=0;FILE_LOCK=NO";
-        Connection conn = getConnection(db);
-        Statement stat;
-        stat = conn.createStatement();
-        stat.execute("create table date_list(tz varchar, t varchar, ts timestamp)");
-        conn.close();
-        TimeZone defaultTimeZone = TimeZone.getDefault();
-        ArrayList<TimeZone> distinct = TestDate.getDistinctTimeZones();
-        try {
-            for (TimeZone tz : distinct) {
-                // println("insert using " + tz.getID());
-                TimeZone.setDefault(tz);
-                DateTimeUtils.resetCalendar();
-                conn = getConnection(db);
-                PreparedStatement prep = conn.prepareStatement(
-                        "insert into date_list values(?, ?, ?)");
-                prep.setString(1, tz.getID());
-                for (int m = 1; m < 10; m++) {
-                    String s = "2000-0" + m + "-01 15:00:00";
-                    prep.setString(2, s);
-                    prep.setTimestamp(3, Timestamp.valueOf(s));
-                    prep.execute();
-                }
-                conn.close();
-            }
-            // printTime("inserted");
-            for (TimeZone target : distinct) {
-                // println("select from " + target.getID());
-                if ("Pacific/Kiritimati".equals(target.getID())) {
-                    // there is a problem with this time zone, but it seems
-                    // unrelated to this database (possibly wrong timezone
-                    // information?)
-                    continue;
-                }
-                TimeZone.setDefault(target);
-                DateTimeUtils.resetCalendar();
-                conn = getConnection(db);
-                stat = conn.createStatement();
-                ResultSet rs = stat.executeQuery("select * from date_list order by t");
-                while (rs.next()) {
-                    String source = rs.getString(1);
-                    String a = rs.getString(2);
-                    String b = rs.getString(3);
-                    b = b.substring(0, a.length());
-                    if (!a.equals(b)) {
-                        assertEquals(source + ">" + target, a, b);
-                    }
-                }
-                conn.close();
-            }
-        } finally {
-            TimeZone.setDefault(defaultTimeZone);
-            DateTimeUtils.resetCalendar();
-        }
-        // printTime("done");
-        conn = getConnection(db);
-        stat = conn.createStatement();
-        stat.execute("drop table date_list");
         conn.close();
     }
 
@@ -242,9 +177,19 @@ public class TestDateStorage extends TestBase {
         try {
             ArrayList<TimeZone> distinct = TestDate.getDistinctTimeZones();
             for (TimeZone tz : distinct) {
+                /*
+                 * Some OpenJDKs have unusable timezones with negative DST that
+                 * causes IAE in SimpleTimeZone().
+                 */
+                if (tz.getID().startsWith("SystemV/")) {
+                    if (tz.getDSTSavings() < 0) {
+                        continue;
+                    }
+                }
                 // println(tz.getID());
                 TimeZone.setDefault(tz);
                 DateTimeUtils.resetCalendar();
+                Data.resetCalendar();
                 for (int d = 101; d < 129; d++) {
                     test(prep, d);
                 }
@@ -252,6 +197,7 @@ public class TestDateStorage extends TestBase {
         } finally {
             TimeZone.setDefault(defaultTimeZone);
             DateTimeUtils.resetCalendar();
+            Data.resetCalendar();
         }
         conn.close();
         deleteDb(getTestName());

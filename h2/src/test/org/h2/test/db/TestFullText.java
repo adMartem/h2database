@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.test.db;
@@ -23,12 +23,14 @@ import java.util.concurrent.TimeUnit;
 import org.h2.fulltext.FullText;
 import org.h2.store.fs.FileUtils;
 import org.h2.test.TestBase;
+import org.h2.test.TestDb;
+import org.h2.util.IOUtils;
 import org.h2.util.Task;
 
 /**
  * Fulltext search tests.
  */
-public class TestFullText extends TestBase {
+public class TestFullText extends TestDb {
 
     /**
      * The words used in this test.
@@ -49,10 +51,6 @@ public class TestFullText extends TestBase {
 
     @Override
     public void test() throws Exception {
-        if (config.multiThreaded) {
-            // It is even mentioned in the docs that this is not supported
-            return;
-        }
         testUuidPrimaryKey(false);
         testAutoAnalyze();
         testNativeFeatures();
@@ -77,10 +75,7 @@ public class TestFullText extends TestBase {
                 testPerformance(true);
                 testReopen(true);
                 testDropIndex(true);
-            } catch (ClassNotFoundException e) {
-                println("Class not found, not tested: " + LUCENE_FULLTEXT_CLASS_NAME);
-                // ok
-            } catch (NoClassDefFoundError e) {
+            } catch (ClassNotFoundException | NoClassDefFoundError e) {
                 println("Class not found, not tested: " + LUCENE_FULLTEXT_CLASS_NAME);
                 // ok
             }
@@ -90,9 +85,9 @@ public class TestFullText extends TestBase {
         deleteDb("fullTextReopen");
     }
 
-    private static void close(Collection<Connection> list) throws SQLException {
+    private static void close(Collection<Connection> list) {
         for (Connection conn : list) {
-            conn.close();
+            IOUtils.closeSilently(conn);
         }
     }
 
@@ -108,7 +103,7 @@ public class TestFullText extends TestBase {
         Connection conn;
         Statement stat;
 
-        ArrayList<Connection> connList = new ArrayList<Connection>();
+        ArrayList<Connection> connList = new ArrayList<>();
 
         conn = getConnection("fullTextNative", connList);
         stat = conn.createStatement();
@@ -130,7 +125,7 @@ public class TestFullText extends TestBase {
 
     private void testNativeFeatures() throws SQLException {
         deleteDb("fullTextNative");
-        ArrayList<Connection> connList = new ArrayList<Connection>();
+        ArrayList<Connection> connList = new ArrayList<>();
         Connection conn = getConnection("fullTextNative", connList);
         Statement stat = conn.createStatement();
         stat.execute("CREATE ALIAS IF NOT EXISTS FT_INIT " +
@@ -160,8 +155,8 @@ public class TestFullText extends TestBase {
         assertEquals("KEYS", rs.getMetaData().getColumnLabel(4));
         assertEquals("PUBLIC", rs.getString(1));
         assertEquals("TEST", rs.getString(2));
-        assertEquals("(ID)", rs.getString(3));
-        assertEquals("(1)", rs.getString(4));
+        assertEquals("[ID]", rs.getString(3));
+        assertEquals("[1]", rs.getString(4));
 
         rs = stat.executeQuery("SELECT * FROM FT_SEARCH('this', 0, 0)");
         assertFalse(rs.next());
@@ -214,7 +209,7 @@ public class TestFullText extends TestBase {
         String prefix = lucene ? "FTL" : "FT";
         deleteDb("fullTextTransaction");
         FileUtils.deleteRecursive(getBaseDir() + "/fullTextTransaction", false);
-        ArrayList<Connection> connList = new ArrayList<Connection>();
+        ArrayList<Connection> connList = new ArrayList<>();
         Connection conn = getConnection("fullTextTransaction", connList);
         Statement stat = conn.createStatement();
         initFullText(stat, lucene);
@@ -250,12 +245,12 @@ public class TestFullText extends TestBase {
         final String prefix = lucene ? "FTL" : "FT";
         trace("Testing multithreaded " + prefix);
         deleteDb("fullText");
-        ArrayList<Connection> connList = new ArrayList<Connection>();
+        ArrayList<Connection> connList = new ArrayList<>();
         try {
             int len = 2;
             Task[] task = new Task[len];
             for (int i = 0; i < len; i++) {
-                final Connection conn = getConnection("fullText", connList);
+                final Connection conn = getConnection("fullText;LOCK_TIMEOUT=60000", connList);
                 Statement stat = conn.createStatement();
                 initFullText(stat, lucene);
                 initFullText(stat, lucene);
@@ -491,8 +486,7 @@ public class TestFullText extends TestBase {
             return;
         }
         deleteDb("fullText");
-        ArrayList<Connection> connList = new ArrayList<Connection>();
-        Connection conn = getConnection("fullText", connList);
+        Connection conn = getConnection("fullText");
         String prefix = lucene ? "FTL_" : "FT_";
         Statement stat = conn.createStatement();
         String className = lucene ? "FullTextLucene" : "FullText";
@@ -590,15 +584,15 @@ public class TestFullText extends TestBase {
 
         if (!config.memory) {
             conn.close();
+            conn = getConnection("fullText");
         }
 
-        conn = getConnection("fullText", connList);
         stat = conn.createStatement();
         stat.executeQuery("SELECT * FROM " + prefix + "SEARCH('World', 0, 0)");
 
         stat.execute("CALL " + prefix + "DROP_ALL()");
 
-        close(connList);
+        conn.close();
     }
 
     private void testDropIndex(boolean lucene) throws SQLException {
@@ -625,7 +619,6 @@ public class TestFullText extends TestBase {
                 "_CREATE_INDEX('PUBLIC', 'TEST', 'NAME1, NAME2')");
         stat.execute("UPDATE TEST SET NAME2=NULL WHERE ID=1");
         stat.execute("UPDATE TEST SET NAME2='Hello World' WHERE ID=1");
-        conn.close();
 
         conn.close();
         FileUtils.deleteRecursive(getBaseDir() + "/fullTextDropIndex", false);

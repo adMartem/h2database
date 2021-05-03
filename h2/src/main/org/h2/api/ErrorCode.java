@@ -1,6 +1,6 @@
 /*
- * Copyright 2004-2014 H2 Group. Multiple-Licensed under the MPL 2.0,
- * and the EPL 1.0 (http://h2database.com/html/license.html).
+ * Copyright 2004-2019 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.api;
@@ -107,6 +107,12 @@ public class ErrorCode {
     public static final int NUMERIC_VALUE_OUT_OF_RANGE_1 = 22003;
 
     /**
+     * The error with code <code>22004</code> is thrown when a value is out of
+     * range when converting to another column's data type.
+     */
+    public static final int NUMERIC_VALUE_OUT_OF_RANGE_2 = 22004;
+
+    /**
      * The error with code <code>22007</code> is thrown when
      * a text can not be converted to a date, time, or timestamp constant.
      * Examples:
@@ -126,6 +132,15 @@ public class ErrorCode {
      * </pre>
      */
     public static final int DIVISION_BY_ZERO_1 = 22012;
+
+    /**
+     * The error with code <code>22013</code> is thrown when preceding or
+     * following size in a window function is null or negative. Example:
+     * <pre>
+     * FIRST_VALUE(N) OVER(ORDER BY N ROWS -1 PRECEDING)
+     * </pre>
+     */
+    public static final int INVALID_PRECEDING_OR_FOLLOWING_1 = 22013;
 
     /**
      * The error with code <code>22018</code> is thrown when
@@ -165,34 +180,13 @@ public class ErrorCode {
      * but the value is not one of the values enumerated by the
      * type.
      *
-     * This error is best thrown in a context when the column name
-     * and it's enumerated values are known.
-     *
      * Example:
      * <pre>
      * CREATE TABLE TEST(CASE ENUM('sensitive','insensitive'));
      * INSERT INTO TEST VALUES('snake');
      * </pre>
      */
-    public static final int ENUM_VALUE_NOT_PERMITTED_1 = 22030;
-
-    /**
-     * The error with code <code>22031</code> is typically thrown
-     * when a math operation is attempted on an ENUM-typed cell,
-     * but the value resulting from the operation is not one of
-     * values enumerated by the type.
-     *
-     * This error is best thrown in a context when the column name
-     * is not known, but the enumerated values of the type are known.
-     *
-     * Example:
-     * <pre>
-     * CREATE TABLE TEST(CASE ENUM('sensitive','insensitive'));
-     * INSERT INTO TEST VALUES('sensitive');
-     * UPDATE TEST SET CASE = CASE + 100;
-     * </pre>
-     */
-    public static final int ENUM_VALUE_NOT_PERMITTED_2 = 22031;
+    public static final int ENUM_VALUE_NOT_PERMITTED = 22030;
 
     /**
      * The error with code <code>22032</code> is thrown when an
@@ -295,7 +289,7 @@ public class ErrorCode {
 
     /**
      * The error with code <code>23514</code> is thrown when
-     * evaluation of a check constraint resulted in a error.
+     * evaluation of a check constraint resulted in an error.
      */
     public static final int CHECK_CONSTRAINT_INVALID = 23514;
 
@@ -416,6 +410,27 @@ public class ErrorCode {
      * </pre>
      */
     public static final int COLUMN_NOT_FOUND_1 = 42122;
+
+    /**
+     * The error with code <code>42131</code> is thrown when
+     * identical expressions should be used, but different
+     * expressions were found.
+     * Example:
+     * <pre>
+     * SELECT MODE(A ORDER BY B) FROM TEST;
+     * </pre>
+     */
+    public static final int IDENTICAL_EXPRESSIONS_SHOULD_BE_USED = 42131;
+
+    /**
+     * The error with code <code>42602</code> is thrown when
+     * invalid name of identifier is used.
+     * Example:
+     * <pre>
+     * statement.enquoteIdentifier("\"", true);
+     * </pre>
+     */
+    public static final int INVALID_NAME_1 = 42602;
 
     // 0A: feature not supported
 
@@ -606,13 +621,11 @@ public class ErrorCode {
     public static final int PARAMETER_NOT_SET_1 = 90012;
 
     /**
-     * The error with code <code>90013</code> is thrown when
-     * trying to open a database that does not exist using the flag
-     * IFEXISTS=TRUE, or when trying to access a database object with a catalog
-     * name that does not match the database name. Example:
+     * The error with code <code>90013</code> is thrown when when trying to access
+     * a database object with a catalog name that does not match the database
+     * name.
      * <pre>
-     * CREATE TABLE TEST(ID INT);
-     * SELECT XYZ.PUBLIC.TEST.ID FROM TEST;
+     * SELECT * FROM database_that_does_not_exist.table_name
      * </pre>
      */
     public static final int DATABASE_NOT_FOUND_1 = 90013;
@@ -1644,6 +1657,17 @@ public class ErrorCode {
     public static final int VIEW_IS_INVALID_2 = 90109;
 
     /**
+     * The error with code <code>90110</code> is thrown when
+     * trying to compare an array value against a non-array value.
+     * Example:
+     * <pre>
+     * CREATE TABLE test (id INT NOT NULL, name VARCHAR);
+     * select * from test where id = (1, 2);
+     * </pre>
+     */
+    public static final int COMPARING_ARRAY_TO_SCALAR = 90110;
+
+    /**
      * The error with code <code>90111</code> is thrown when
      * an exception occurred while accessing a linked table.
      */
@@ -1741,7 +1765,13 @@ public class ErrorCode {
      * CREATE DOMAIN EMAIL AS VARCHAR CHECK LOCATE('@', VALUE) > 0;
      * </pre>
      */
-    public static final int USER_DATA_TYPE_ALREADY_EXISTS_1 = 90119;
+    public static final int DOMAIN_ALREADY_EXISTS_1 = 90119;
+
+    /**
+     * Deprecated since 1.4.198. Use {@link #DOMAIN_ALREADY_EXISTS_1} instead.
+     */
+    @Deprecated
+    public static final int USER_DATA_TYPE_ALREADY_EXISTS_1 = DOMAIN_ALREADY_EXISTS_1;
 
     /**
      * The error with code <code>90120</code> is thrown when
@@ -1751,7 +1781,13 @@ public class ErrorCode {
      * DROP DOMAIN UNKNOWN;
      * </pre>
      */
-    public static final int USER_DATA_TYPE_NOT_FOUND_1 = 90120;
+    public static final int DOMAIN_NOT_FOUND_1 = 90120;
+
+    /**
+     * Deprecated since 1.4.198. Use {@link #DOMAIN_NOT_FOUND_1} instead.
+     */
+    @Deprecated
+    public static final int USER_DATA_TYPE_NOT_FOUND_1 = DOMAIN_NOT_FOUND_1;
 
     /**
      * The error with code <code>90121</code> is thrown when
@@ -1759,6 +1795,12 @@ public class ErrorCode {
      * (for example in a shutdown hook), or when the session is closed.
      */
     public static final int DATABASE_CALLED_AT_SHUTDOWN = 90121;
+
+    /**
+     * The error with code <code>90122</code> is thrown when
+     * WITH TIES clause is used without ORDER BY clause.
+     */
+    public static final int WITH_TIES_WITHOUT_ORDER_BY = 90122;
 
     /**
      * The error with code <code>90123</code> is thrown when
@@ -1865,7 +1907,7 @@ public class ErrorCode {
      * connections at the same time, or trying to insert two rows with the same
      * key from two connections. Example:
      * <pre>
-     * jdbc:h2:~/test;MVCC=TRUE
+     * jdbc:h2:~/test
      * Session 1:
      * CREATE TABLE TEST(ID INT);
      * INSERT INTO TEST VALUES(1);
@@ -1891,8 +1933,7 @@ public class ErrorCode {
     /**
      * The error with code <code>90133</code> is thrown when
      * trying to change a specific database property while the database is
-     * already open. The MVCC property needs to be set in the first connection
-     * (in the connection opening the database) and can not be changed later on.
+     * already open.
      */
     public static final int CANNOT_CHANGE_SETTING_WHEN_OPEN_1 = 90133;
 
@@ -1916,13 +1957,13 @@ public class ErrorCode {
 
     /**
      * The error with code <code>90136</code> is thrown when
-     * executing a query that used an unsupported outer join condition.
+     * trying to reference a window that does not exist.
      * Example:
      * <pre>
-     * SELECT * FROM DUAL A LEFT JOIN DUAL B ON B.X=(SELECT MAX(X) FROM DUAL);
+     * SELECT LEAD(X) OVER W FROM TEST;
      * </pre>
      */
-    public static final int UNSUPPORTED_OUTER_JOIN_CONDITION_1 = 90136;
+    public static final int WINDOW_NOT_FOUND_1 = 90136;
 
     /**
      * The error with code <code>90137</code> is thrown when
@@ -1990,11 +2031,73 @@ public class ErrorCode {
     /**
      * The error with code <code>90143</code> is thrown when
      * trying to fetch a row from the primary index and the row is not there.
-     * Can happen in MULTI_THREADED=1 case.
      */
     public static final int ROW_NOT_FOUND_IN_PRIMARY_INDEX = 90143;
 
-    // next are 90110, 90122, 90144
+    /**
+     * The error with code <code>90144</code> is thrown when
+     * user trying to login into a database with AUTHREALM set and
+     * the target database doesn't have an authenticator defined
+     * <p>Authenticator experimental feature can be enabled by
+     * </p>
+     * <pre>
+     * SET AUTHENTICATOR TRUE
+     * </pre>
+     */
+    public static final int AUTHENTICATOR_NOT_AVAILABLE = 90144;
+
+    /**
+     * The error with code <code>90145</code> is thrown when trying to execute a
+     * SELECT statement with non-window aggregates, DISTINCT, GROUP BY, or
+     * HAVING clauses together with FOR UPDATE clause.
+     *
+     * <pre>
+     * SELECT DISTINCT NAME FOR UPDATE;
+     * SELECT MAX(VALUE) FOR UPDATE;
+     * </pre>
+     */
+    public static final int FOR_UPDATE_IS_NOT_ALLOWED_IN_DISTINCT_OR_GROUPED_SELECT = 90145;
+
+    /**
+     * The error with code <code>90146</code> is thrown when trying to open a
+     * database that does not exist using the flag IFEXISTS=TRUE
+     * <pre>
+     * jdbc:h2:./database_that_does_not_exist
+     * </pre>
+     */
+    public static final int DATABASE_NOT_FOUND_WITH_IF_EXISTS_1 = 90146;
+
+    /**
+     * The error with code <code>90147</code> is thrown when trying to execute a
+     * statement which closes the transaction (such as commit and rollback) and
+     * autocommit mode is on.
+     *
+     * @see org.h2.engine.SysProperties#FORCE_AUTOCOMMIT_OFF_ON_COMMIT
+     */
+    public static final int METHOD_DISABLED_ON_AUTOCOMMIT_TRUE = 90147;
+
+    /**
+     * The error with code <code>90148</code> is thrown when trying to access
+     * the current value of a sequence before execution of NEXT VALUE FOR
+     * sequenceName in the current session. Example:
+     *
+     * <pre>
+     * SELECT CURRENT VALUE FOR SEQUENCE XYZ;
+     * </pre>
+     */
+    public static final int CURRENT_SEQUENCE_VALUE_IS_NOT_DEFINED_IN_SESSION_1 = 90148;
+
+    /**
+     * The error with code <code>90149</code> is thrown when trying to open a
+     * database that does not exist remotely without enabling remote database
+     * creation first.
+     * <pre>
+     * jdbc:h2:./database_that_does_not_exist
+     * </pre>
+     */
+    public static final int REMOTE_DATABASE_NOT_FOUND_1 = 90149;
+
+    // next is 90150
 
     private ErrorCode() {
         // utility class
@@ -2054,6 +2157,7 @@ public class ErrorCode {
         case INDEX_NOT_FOUND_1: return "42S12";
         case DUPLICATE_COLUMN_NAME_1: return "42S21";
         case COLUMN_NOT_FOUND_1: return "42S22";
+        case IDENTICAL_EXPRESSIONS_SHOULD_BE_USED: return "42S31";
 
         // 0A: feature not supported
 
@@ -2066,7 +2170,7 @@ public class ErrorCode {
         case FEATURE_NOT_SUPPORTED_1: return "HYC00";
         case LOCK_TIMEOUT_1: return "HYT00";
         default:
-            return "" + errorCode;
+            return Integer.toString(errorCode);
         }
     }
 
