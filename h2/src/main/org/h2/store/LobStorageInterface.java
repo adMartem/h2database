@@ -8,6 +8,9 @@ package org.h2.store;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+
+import org.h2.value.ValueBlob;
+import org.h2.value.ValueClob;
 import org.h2.value.ValueLob;
 
 /**
@@ -22,7 +25,7 @@ public interface LobStorageInterface {
      * @param maxLength the maximum length (-1 if not known)
      * @return the LOB
      */
-    ValueLob createClob(Reader reader, long maxLength);
+    ValueClob createClob(Reader reader, long maxLength);
 
     /**
      * Create a BLOB object.
@@ -31,17 +34,16 @@ public interface LobStorageInterface {
      * @param maxLength the maximum length (-1 if not known)
      * @return the LOB
      */
-    ValueLob createBlob(InputStream in, long maxLength);
+    ValueBlob createBlob(InputStream in, long maxLength);
 
     /**
      * Copy a lob.
      *
      * @param old the old lob
      * @param tableId the new table id
-     * @param length the length
      * @return the new lob
      */
-    ValueLob copyLob(ValueLob old, int tableId, long length);
+    ValueLob copyLob(ValueLob old, int tableId);
 
     /**
      * Get the input stream for the given lob, only called on server side of a TCP connection.
@@ -51,6 +53,17 @@ public interface LobStorageInterface {
      * @return the stream
      */
     InputStream getInputStream(long lobId, long byteCount)
+            throws IOException;
+
+    /**
+     * Get the input stream for the given lob
+     *
+     * @param lobId the lob id
+     * @param tableId the able id
+     * @param byteCount the number of bytes to read, or -1 if not known
+     * @return the stream
+     */
+    InputStream getInputStream(long lobId, int tableId, long byteCount)
             throws IOException;
 
     /**

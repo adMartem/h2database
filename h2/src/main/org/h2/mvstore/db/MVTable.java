@@ -33,6 +33,8 @@ import org.h2.util.Utils;
 
 /**
  * A table stored in a MVStore.
+ *
+ * @TODO merge this with RegularTable now that pagestore is gone
  */
 public class MVTable extends RegularTable {
     /**
@@ -87,7 +89,7 @@ public class MVTable extends RegularTable {
         }
     }
 
-    private MVPrimaryIndex primaryIndex;
+    private final MVPrimaryIndex primaryIndex;
     private final ArrayList<Index> indexes = Utils.newSmallArrayList();
     private final AtomicLong lastModificationId = new AtomicLong();
 
@@ -307,8 +309,8 @@ public class MVTable extends RegularTable {
     }
 
     @Override
-    public Index addIndex(SessionLocal session, String indexName, int indexId, IndexColumn[] cols, IndexType indexType,
-            boolean create, String indexComment) {
+    public Index addIndex(SessionLocal session, String indexName, int indexId, IndexColumn[] cols,
+            int uniqueColumnCount, IndexType indexType, boolean create, String indexComment) {
         cols = prepareColumns(database, cols, indexType);
         boolean isSessionTemporary = isTemporary() && !isGlobalTemporary();
         if (!isSessionTemporary) {
@@ -333,10 +335,10 @@ public class MVTable extends RegularTable {
                     indexType);
         } else if (indexType.isSpatial()) {
             index = new MVSpatialIndex(session.getDatabase(), this, indexId,
-                    indexName, cols, indexType);
+                    indexName, cols, uniqueColumnCount, indexType);
         } else {
             index = new MVSecondaryIndex(session.getDatabase(), this, indexId,
-                    indexName, cols, indexType);
+                    indexName, cols, uniqueColumnCount, indexType);
         }
         if (index.needRebuild()) {
             rebuildIndex(session, index, indexName);
@@ -357,7 +359,7 @@ public class MVTable extends RegularTable {
 
     private void rebuildIndex(SessionLocal session, MVIndex<?,?> index, String indexName) {
         try {
-            if (session.getDatabase().getStore() == null || index instanceof MVSpatialIndex) {
+            if (!session.getDatabase().isPersistent() || index instanceof MVSpatialIndex) {
                 // in-memory
                 rebuildIndexBuffered(session, index);
             } else {
@@ -552,11 +554,6 @@ public class MVTable extends RegularTable {
     }
 
     @Override
-    public Index getUniqueIndex() {
-        return primaryIndex;
-    }
-
-    @Override
     public ArrayList<Index> getIndexes() {
         return indexes;
     }
@@ -618,7 +615,7 @@ public class MVTable extends RegularTable {
     }
 
     @Override
-    public boolean isMVStore() {
+    public boolean isRowLockable() {
         return true;
     }
 

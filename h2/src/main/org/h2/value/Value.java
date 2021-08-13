@@ -35,6 +35,9 @@ import org.h2.util.MathUtils;
 import org.h2.util.StringUtils;
 import org.h2.util.geometry.GeoJsonUtils;
 import org.h2.util.json.JsonConstructorUtils;
+import org.h2.value.lob.LobData;
+import org.h2.value.lob.LobDataDatabase;
+import org.h2.value.lob.LobDataInMemory;
 
 /**
  * This is the base class for all value classes.
@@ -1262,38 +1265,38 @@ public abstract class Value extends VersionedValue<Value> implements HasSQL, Typ
         return valueType == Value.VARCHAR ? this : ValueVarchar.get(getString(), provider);
     }
 
-    private ValueLob convertToClob(TypeInfo targetType, int conversionMode, Object column) {
-        ValueLob v;
+    private ValueClob convertToClob(TypeInfo targetType, int conversionMode, Object column) {
+        ValueClob v;
         switch (getValueType()) {
         case CLOB:
-            v = (ValueLob) this;
+            v = (ValueClob) this;
             break;
         case JAVA_OBJECT:
             throw getDataConversionError(targetType.getValueType());
         case BLOB: {
-            v = (ValueLob) this;
+            LobData data = ((ValueBlob) this).lobData;
             // Try to reuse the array, if possible
-            if (v instanceof ValueLobInMemory) {
-                byte[] small = ((ValueLobInMemory)v).getSmall();
+            if (data instanceof LobDataInMemory) {
+                byte[] small = ((LobDataInMemory) data).getSmall();
                 byte[] bytes = new String(small, StandardCharsets.UTF_8).getBytes(StandardCharsets.UTF_8);
                 if (Arrays.equals(bytes, small)) {
                     bytes = small;
                 }
-                v = ValueLobInMemory.createSmallLob(CLOB, bytes);
+                v = ValueClob.createSmall(bytes);
                 break;
-            } else if (v instanceof ValueLobDatabase) {
-                v = ((ValueLobDatabase) v).getDataHandler().getLobStorage().createClob(v.getReader(), -1);
+            } else if (data instanceof LobDataDatabase) {
+                v = data.getDataHandler().getLobStorage().createClob(getReader(), -1);
                 break;
             }
         }
         //$FALL-THROUGH$
         default:
-            v = ValueLobInMemory.createSmallLob(CLOB, getString().getBytes(StandardCharsets.UTF_8));
+            v = ValueClob.createSmall(getString());
         }
         if (conversionMode != CONVERT_TO) {
             if (conversionMode == CAST_TO) {
                 v = v.convertPrecision(targetType.getPrecision());
-            } else if (v.getPrecision() > targetType.getPrecision()) {
+            } else if (v.charLength() > targetType.getPrecision()) {
                 throw v.getValueTooLongException(targetType, column);
             }
         }
@@ -1370,14 +1373,14 @@ public abstract class Value extends VersionedValue<Value> implements HasSQL, Typ
         return v;
     }
 
-    private ValueLob convertToBlob(TypeInfo targetType, int conversionMode, Object column) {
-        ValueLob v;
+    private ValueBlob convertToBlob(TypeInfo targetType, int conversionMode, Object column) {
+        ValueBlob v;
         switch (getValueType()) {
         case BLOB:
-            v = (ValueLob) this;
+            v = (ValueBlob) this;
             break;
         case CLOB:
-            DataHandler handler = ((ValueLob) this).getDataHandler();
+            DataHandler handler = ((ValueLob) this).lobData.getDataHandler();
             if (handler != null) {
                 v = handler.getLobStorage().createBlob(getInputStream(), -1);
                 break;
@@ -1385,7 +1388,7 @@ public abstract class Value extends VersionedValue<Value> implements HasSQL, Typ
             //$FALL-THROUGH$
         default:
             try {
-                v = ValueLobInMemory.createSmallLob(BLOB, getBytesNoCopy());
+                v = ValueBlob.createSmall(getBytesNoCopy());
             } catch (DbException e) {
                 if (e.getErrorCode() == ErrorCode.DATA_CONVERSION_ERROR_1) {
                     throw getDataConversionError(BLOB);
@@ -1397,7 +1400,7 @@ public abstract class Value extends VersionedValue<Value> implements HasSQL, Typ
         if (conversionMode != CONVERT_TO) {
             if (conversionMode == CAST_TO) {
                 v = v.convertPrecision(targetType.getPrecision());
-            } else if (v.getPrecision() > targetType.getPrecision()) {
+            } else if (v.octetLength() > targetType.getPrecision()) {
                 throw v.getValueTooLongException(targetType, column);
             }
         }
@@ -1678,7 +1681,8 @@ public abstract class Value extends VersionedValue<Value> implements HasSQL, Typ
                     && (scale >= targetScale || !provider.getMode().convertOnlyToSmallerScale)) {
                 value = ValueNumeric.setScale(value, targetScale);
             }
-            if (value.precision() > targetType.getPrecision()) {
+            if (conversionMode != CONVERT_TO
+                    && value.precision() > targetType.getPrecision() - targetScale + value.scale()) {
                 throw getValueTooLongException(targetType, column);
             }
             return ValueNumeric.get(value);
@@ -1693,7 +1697,8 @@ public abstract class Value extends VersionedValue<Value> implements HasSQL, Typ
             if (scale != targetScale && (scale >= targetScale || !provider.getMode().convertOnlyToSmallerScale)) {
                 v = ValueNumeric.get(ValueNumeric.setScale(value, targetScale));
             }
-            if (v.getBigDecimal().precision() > targetType.getPrecision()) {
+            BigDecimal bd = v.getBigDecimal();
+            if (bd.precision() > targetType.getPrecision() - targetScale + bd.scale()) {
                 throw v.getValueTooLongException(targetType, column);
             }
         }

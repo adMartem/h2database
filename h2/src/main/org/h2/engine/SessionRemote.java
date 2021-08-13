@@ -234,7 +234,11 @@ public final class SessionRemote extends Session implements DataHandler {
         }
     }
 
-    @Override
+    /**
+     * Returns the TCP protocol version of remote connection.
+     *
+     * @return the TCP protocol version
+     */
     public int getClientVersion() {
         return clientVersion;
     }
@@ -681,11 +685,6 @@ public final class SessionRemote extends Session implements DataHandler {
     @Override
     public String getDatabasePath() {
         return "";
-    }
-
-    @Override
-    public String getLobCompressionAlgorithm(int type) {
-        return null;
     }
 
     @Override

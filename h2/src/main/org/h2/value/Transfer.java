@@ -35,6 +35,9 @@ import org.h2.util.MathUtils;
 import org.h2.util.NetUtils;
 import org.h2.util.StringUtils;
 import org.h2.util.Utils;
+import org.h2.value.lob.LobData;
+import org.h2.value.lob.LobDataDatabase;
+import org.h2.value.lob.LobDataFetchOnDemand;
 
 /**
  * The transfer class is used to send and receive Value objects.
@@ -869,23 +872,24 @@ public final class Transfer {
             break;
         case Value.BLOB: {
             writeInt(BLOB);
-            ValueLob lob = (ValueLob) v;
-            if (lob instanceof ValueLobDatabase) {
-                ValueLobDatabase lobDb = (ValueLobDatabase) lob;
+            ValueBlob lob = (ValueBlob) v;
+            LobData lobData = lob.getLobData();
+            long length = lob.octetLength();
+            if (lobData instanceof LobDataDatabase) {
+                LobDataDatabase lobDataDatabase = (LobDataDatabase) lobData;
                 writeLong(-1);
-                writeInt(lobDb.getTableId());
-                writeLong(lobDb.getLobId());
-                writeBytes(calculateLobMac(lobDb.getLobId()));
-                writeLong(lob.getType().getPrecision());
+                writeInt(lobDataDatabase.getTableId());
+                writeLong(lobDataDatabase.getLobId());
+                writeBytes(calculateLobMac(lobDataDatabase.getLobId()));
+                writeLong(length);
                 break;
             }
-            long length = v.getType().getPrecision();
             if (length < 0) {
                 throw DbException.get(
                         ErrorCode.CONNECTION_BROKEN_1, "length=" + length);
             }
             writeLong(length);
-            long written = IOUtils.copyAndCloseInput(v.getInputStream(), out);
+            long written = IOUtils.copyAndCloseInput(lob.getInputStream(), out);
             if (written != length) {
                 throw DbException.get(
                         ErrorCode.CONNECTION_BROKEN_1, "length:" + length + " written:" + written);
@@ -895,23 +899,27 @@ public final class Transfer {
         }
         case Value.CLOB: {
             writeInt(CLOB);
-            ValueLob lob = (ValueLob) v;
-            if (lob instanceof ValueLobDatabase) {
-                ValueLobDatabase lobDb = (ValueLobDatabase) lob;
+            ValueClob lob = (ValueClob) v;
+            LobData lobData = lob.getLobData();
+            long charLength = lob.charLength();
+            if (lobData instanceof LobDataDatabase) {
+                LobDataDatabase lobDataDatabase = (LobDataDatabase) lobData;
                 writeLong(-1);
-                writeInt(lobDb.getTableId());
-                writeLong(lobDb.getLobId());
-                writeBytes(calculateLobMac(lobDb.getLobId()));
-                writeLong(lob.getType().getPrecision());
+                writeInt(lobDataDatabase.getTableId());
+                writeLong(lobDataDatabase.getLobId());
+                writeBytes(calculateLobMac(lobDataDatabase.getLobId()));
+                if (version >= Constants.TCP_PROTOCOL_VERSION_20) {
+                    writeLong(lob.octetLength());
+                }
+                writeLong(charLength);
                 break;
             }
-            long length = v.getType().getPrecision();
-            if (length < 0) {
+            if (charLength < 0) {
                 throw DbException.get(
-                        ErrorCode.CONNECTION_BROKEN_1, "length=" + length);
+                        ErrorCode.CONNECTION_BROKEN_1, "length=" + charLength);
             }
-            writeLong(length);
-            Reader reader = v.getReader();
+            writeLong(charLength);
+            Reader reader = lob.getReader();
             Data.copyString(reader, out);
             writeInt(LOB_MAGIC);
             break;
@@ -1076,8 +1084,7 @@ public final class Transfer {
                 long id = readLong();
                 byte[] hmac = readBytes();
                 long precision = readLong();
-                return ValueLobFetchOnDemand.create(Value.BLOB, session.getDataHandler(), tableId, id, hmac, //
-                        precision);
+                return new ValueBlob(new LobDataFetchOnDemand(session.getDataHandler(), tableId, id, hmac), precision);
             }
             Value v = session.getDataHandler().getLobStorage().createBlob(in, length);
             int magic = readInt();
@@ -1088,22 +1095,23 @@ public final class Transfer {
             return v;
         }
         case CLOB: {
-            long length = readLong();
-            if (length == -1) {
+            long charLength = readLong();
+            if (charLength == -1) {
                 // fetch-on-demand LOB
                 int tableId = readInt();
                 long id = readLong();
                 byte[] hmac = readBytes();
-                long precision = readLong();
-                return ValueLobFetchOnDemand.create(Value.CLOB, session.getDataHandler(), tableId, id, hmac, //
-                        precision);
+                long octetLength = version >= Constants.TCP_PROTOCOL_VERSION_20 ? readLong() : -1L;
+                charLength = readLong();
+                return new ValueClob(new LobDataFetchOnDemand(session.getDataHandler(), tableId, id, hmac),
+                        octetLength, charLength);
             }
-            if (length < 0) {
+            if (charLength < 0) {
                 throw DbException.get(
-                        ErrorCode.CONNECTION_BROKEN_1, "length="+ length);
+                        ErrorCode.CONNECTION_BROKEN_1, "length="+ charLength);
             }
             Value v = session.getDataHandler().getLobStorage().
-                    createClob(new DataReader(in), length);
+                    createClob(new DataReader(in), charLength);
             int magic = readInt();
             if (magic != LOB_MAGIC) {
                 throw DbException.get(

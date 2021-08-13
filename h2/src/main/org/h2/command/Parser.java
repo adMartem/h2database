@@ -1971,7 +1971,6 @@ public class Parser {
         }
         if (readIf("SORTED")) {
             requireQuery = true;
-            command.setSortedInsertMode(true);
         }
         readValues: {
             if (!requireQuery) {
@@ -3238,7 +3237,24 @@ public class Parser {
                         } while (readIfMore());
                     }
                 } else {
-                    list.add(readExpression());
+                    Expression expr = readExpression();
+                    if (database.getMode().groupByColumnIndex && expr instanceof ValueExpression &&
+                            expr.getType().getValueType() == Value.INTEGER) {
+                        ArrayList<Expression> expressions = command.getExpressions();
+                        for (Expression e : expressions) {
+                            if (e instanceof Wildcard) {
+                                throw getSyntaxError();
+                            }
+                        }
+                        int idx = expr.getValue(session).getInt();
+                        if (idx < 1 || idx > expressions.size()) {
+                            throw DbException.get(ErrorCode.GROUP_BY_NOT_IN_THE_RESULT, Integer.toString(idx),
+                                    Integer.toString(expressions.size()));
+                        }
+                        list.add(expressions.get(idx-1));
+                    } else {
+                        list.add(expr);
+                    }
                 }
             } while (readIf(COMMA));
             if (!list.isEmpty()) {
@@ -6059,9 +6075,6 @@ public class Parser {
              * Sometimes a new keywords are introduced. During metadata
              * initialization phase keywords are accepted as identifiers to
              * allow migration from older versions.
-             *
-             * PageStore's LobStorageBackend also needs this in databases that
-             * were created in 1.4.197 and older versions.
              */
             if (!session.isQuirksMode() || !isKeyword(currentTokenType)) {
                 throw DbException.getSyntaxError(sqlCommand, parseIndex, "identifier");
@@ -7847,19 +7860,35 @@ public class Parser {
             command.setIfNotExists(ifNotExists);
             command.setPrimaryKey(primaryKey);
             command.setTableName(tableName);
-            command.setUnique(unique);
             command.setHash(hash);
             command.setSpatial(spatial);
             command.setIndexName(indexName);
             command.setComment(comment);
             IndexColumn[] columns;
+            int uniqueColumnCount = 0;
             if (spatial) {
                 columns = new IndexColumn[] { new IndexColumn(readIdentifier()) };
+                if (unique) {
+                    uniqueColumnCount = 1;
+                }
                 read(CLOSE_PAREN);
             } else {
                 columns = parseIndexColumnList();
+                if (unique) {
+                    uniqueColumnCount = columns.length;
+                    if (readIf("INCLUDE")) {
+                        read(OPEN_PAREN);
+                        IndexColumn[] columnsToInclude = parseIndexColumnList();
+                        int nonUniqueCount = columnsToInclude.length;
+                        columns = Arrays.copyOf(columns, uniqueColumnCount + nonUniqueCount);
+                        System.arraycopy(columnsToInclude, 0, columns, uniqueColumnCount, nonUniqueCount);
+                    }
+                } else if (primaryKey) {
+                    uniqueColumnCount = columns.length;
+                }
             }
             command.setIndexColumns(columns);
+            command.setUniqueColumnCount(uniqueColumnCount);
             return command;
         }
     }
@@ -8943,11 +8972,6 @@ public class Parser {
             Set command = new Set(session, SetTypes.MODE);
             command.setString(readIdentifier());
             return command;
-        } else if (readIf("COMPRESS_LOB")) {
-            readIfEqualOrTo();
-            Set command = new Set(session, SetTypes.COMPRESS_LOB);
-            command.setString(currentTokenType == LITERAL ? readString() : readIdentifier());
-            return command;
         } else if (readIf("DATABASE")) {
             readIfEqualOrTo();
             read("COLLATION");
@@ -9057,6 +9081,8 @@ public class Parser {
             Set command = new Set(session, SetTypes.DEFAULT_NULL_ORDERING);
             command.setString(readIdentifier());
             return command;
+        } else if (readIf("LOG")) {
+            throw DbException.getUnsupportedException("LOG");
         } else {
             String upperName = upperName(currentToken);
             if (ConnectionInfo.isIgnoredByParser(upperName)) {
@@ -9890,6 +9916,17 @@ public class Parser {
                 command.setOldColumnName(columnName);
                 command.setNewColumnName(newColumnName);
                 return command;
+            } else if (readIf("CONVERT")) {
+                readIf(TO);
+                readIf("CHARACTER");
+                readIf(SET);
+                readMySQLCharset();
+
+                if (readIf("COLLATE")) {
+                    readMySQLCharset();
+                }
+
+                return new NoOperation(session);
             }
         }
         if (mode.alterTableModifyColumn && readIf("MODIFY")) {
@@ -10328,9 +10365,7 @@ public class Parser {
             command.setHidden(true);
         }
         if (readIf(AS)) {
-            if (readIf("SORTED")) {
-                command.setSortedInsertMode(true);
-            }
+            readIf("SORTED");
             command.setQuery(parseQuery());
             if (readIf(WITH)) {
                 command.setWithNoData(readIf("NO"));

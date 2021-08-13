@@ -41,7 +41,6 @@ import org.h2.message.DbException;
 import org.h2.mvstore.FileStore;
 import org.h2.mvstore.MVStore;
 import org.h2.mvstore.db.Store;
-import org.h2.pagestore.PageStore;
 import org.h2.result.Row;
 import org.h2.result.SearchRow;
 import org.h2.result.SortOrder;
@@ -735,6 +734,7 @@ public final class InformationSchemaTable extends MetaTable {
                     column("ORDINAL_POSITION", TypeInfo.TYPE_INTEGER), //
                     column("ORDERING_SPECIFICATION"), //
                     column("NULL_ORDERING"), //
+                    column("IS_UNIQUE", TypeInfo.TYPE_BOOLEAN), //
             };
             indexColumnName = "TABLE_NAME";
             break;
@@ -2646,6 +2646,7 @@ public final class InformationSchemaTable extends MetaTable {
     private void indexColumns(SessionLocal session, ArrayList<Row> rows, String catalog, Table table,
             String tableName, Index index) {
         IndexColumn[] cols = index.getIndexColumns();
+        int uniqueColumnCount = index.getUniqueColumnCount();
         for (int i = 0, l = cols.length; i < l;) {
             IndexColumn idxCol = cols[i];
             int sortType = idxCol.sortType;
@@ -2670,7 +2671,9 @@ public final class InformationSchemaTable extends MetaTable {
                     (sortType & SortOrder.DESCENDING) == 0 ? "ASC" : "DESC",
                     // NULL_ORDERING
                     (sortType & SortOrder.NULLS_FIRST) != 0 ? "FIRST"
-                            : (sortType & SortOrder.NULLS_LAST) != 0 ? "LAST" : null
+                            : (sortType & SortOrder.NULLS_LAST) != 0 ? "LAST" : null,
+                    // IS_UNIQUE
+                    ValueBoolean.get(i <= uniqueColumnCount)
                 );
         }
     }
@@ -2859,7 +2862,7 @@ public final class InformationSchemaTable extends MetaTable {
                 // EXECUTING_STATEMENT_START
                 command == null ? null : s.getCommandStartOrEnd(),
                 // CONTAINS_UNCOMMITTED
-                ValueBoolean.get(s.containsUncommitted()),
+                ValueBoolean.get(s.hasPendingTransaction()),
                 // SESSION_STATE
                 String.valueOf(s.getState()),
                 // BLOCKER_ID
@@ -2966,65 +2969,49 @@ public final class InformationSchemaTable extends MetaTable {
         for (Map.Entry<String, String> entry : database.getSettings().getSortedSettings()) {
             add(session, rows, entry.getKey(), entry.getValue());
         }
-        if (database.isPersistent()) {
-            Store store = database.getStore();
-            if (store != null) {
-                MVStore mvStore = store.getMvStore();
-                FileStore fs = mvStore.getFileStore();
-                if (fs != null) {
-                    add(session, rows,
-                            "info.FILE_WRITE", Long.toString(fs.getWriteCount()));
-                    add(session, rows,
-                            "info.FILE_WRITE_BYTES", Long.toString(fs.getWriteBytes()));
-                    add(session, rows,
-                            "info.FILE_READ", Long.toString(fs.getReadCount()));
-                    add(session, rows,
-                            "info.FILE_READ_BYTES", Long.toString(fs.getReadBytes()));
-                    add(session, rows,
-                            "info.UPDATE_FAILURE_PERCENT",
-                            String.format(Locale.ENGLISH, "%.2f%%", 100 * mvStore.getUpdateFailureRatio()));
-                    add(session, rows,
-                            "info.FILL_RATE", Integer.toString(mvStore.getFillRate()));
-                    add(session, rows,
-                            "info.CHUNKS_FILL_RATE", Integer.toString(mvStore.getChunksFillRate()));
-                    add(session, rows,
-                            "info.CHUNKS_FILL_RATE_RW", Integer.toString(mvStore.getRewritableChunksFillRate()));
-                    try {
-                        add(session, rows,
-                                "info.FILE_SIZE", Long.toString(fs.getFile().size()));
-                    } catch (IOException ignore) {/**/}
-                    add(session, rows,
-                            "info.CHUNK_COUNT", Long.toString(mvStore.getChunkCount()));
-                    add(session, rows,
-                            "info.PAGE_COUNT", Long.toString(mvStore.getPageCount()));
-                    add(session, rows,
-                            "info.PAGE_COUNT_LIVE", Long.toString(mvStore.getLivePageCount()));
-                    add(session, rows,
-                            "info.PAGE_SIZE", Integer.toString(mvStore.getPageSplitSize()));
-                    add(session, rows,
-                            "info.CACHE_MAX_SIZE", Integer.toString(mvStore.getCacheSize()));
-                    add(session, rows,
-                            "info.CACHE_SIZE", Integer.toString(mvStore.getCacheSizeUsed()));
-                    add(session, rows,
-                            "info.CACHE_HIT_RATIO", Integer.toString(mvStore.getCacheHitRatio()));
-                    add(session, rows, "info.TOC_CACHE_HIT_RATIO",
-                            Integer.toString(mvStore.getTocCacheHitRatio()));
-                    add(session, rows,
-                            "info.LEAF_RATIO", Integer.toString(mvStore.getLeafRatio()));
-                }
-            } else {
-                PageStore pageStore = database.getPageStore();
-                if (pageStore != null) {
-                    add(session, rows, "LOG", Integer.toString(pageStore.getLogMode()));
-                    add(session, rows, "info.FILE_WRITE_TOTAL", Long.toString(pageStore.getWriteCountTotal()));
-                    add(session, rows, "info.FILE_WRITE", Long.toString(pageStore.getWriteCount()));
-                    add(session, rows, "info.FILE_READ", Long.toString(pageStore.getReadCount()));
-                    add(session, rows, "info.PAGE_COUNT", Integer.toString(pageStore.getPageCount()));
-                    add(session, rows, "info.PAGE_SIZE", Integer.toString(pageStore.getPageSize()));
-                    add(session, rows, "info.CACHE_MAX_SIZE", Integer.toString(pageStore.getCache().getMaxMemory()));
-                    add(session, rows, "info.CACHE_SIZE", Integer.toString(pageStore.getCache().getMemory()));
-                }
-            }
+        Store store = database.getStore();
+        MVStore mvStore = store.getMvStore();
+        FileStore fs = mvStore.getFileStore();
+        if (fs != null) {
+            add(session, rows,
+                    "info.FILE_WRITE", Long.toString(fs.getWriteCount()));
+            add(session, rows,
+                    "info.FILE_WRITE_BYTES", Long.toString(fs.getWriteBytes()));
+            add(session, rows,
+                    "info.FILE_READ", Long.toString(fs.getReadCount()));
+            add(session, rows,
+                    "info.FILE_READ_BYTES", Long.toString(fs.getReadBytes()));
+            add(session, rows,
+                    "info.UPDATE_FAILURE_PERCENT",
+                    String.format(Locale.ENGLISH, "%.2f%%", 100 * mvStore.getUpdateFailureRatio()));
+            add(session, rows,
+                    "info.FILL_RATE", Integer.toString(mvStore.getFillRate()));
+            add(session, rows,
+                    "info.CHUNKS_FILL_RATE", Integer.toString(mvStore.getChunksFillRate()));
+            add(session, rows,
+                    "info.CHUNKS_FILL_RATE_RW", Integer.toString(mvStore.getRewritableChunksFillRate()));
+            try {
+                add(session, rows,
+                        "info.FILE_SIZE", Long.toString(fs.getFile().size()));
+            } catch (IOException ignore) {/**/}
+            add(session, rows,
+                    "info.CHUNK_COUNT", Long.toString(mvStore.getChunkCount()));
+            add(session, rows,
+                    "info.PAGE_COUNT", Long.toString(mvStore.getPageCount()));
+            add(session, rows,
+                    "info.PAGE_COUNT_LIVE", Long.toString(mvStore.getLivePageCount()));
+            add(session, rows,
+                    "info.PAGE_SIZE", Integer.toString(mvStore.getPageSplitSize()));
+            add(session, rows,
+                    "info.CACHE_MAX_SIZE", Integer.toString(mvStore.getCacheSize()));
+            add(session, rows,
+                    "info.CACHE_SIZE", Integer.toString(mvStore.getCacheSizeUsed()));
+            add(session, rows,
+                    "info.CACHE_HIT_RATIO", Integer.toString(mvStore.getCacheHitRatio()));
+            add(session, rows, "info.TOC_CACHE_HIT_RATIO",
+                    Integer.toString(mvStore.getTocCacheHitRatio()));
+            add(session, rows,
+                    "info.LEAF_RATIO", Integer.toString(mvStore.getLeafRatio()));
         }
     }
 
