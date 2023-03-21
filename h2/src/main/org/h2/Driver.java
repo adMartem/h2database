@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -56,7 +56,7 @@ public class Driver implements java.sql.Driver, JdbcDriverBackwardsCompat {
         if (url == null) {
             throw DbException.getJdbcSQLException(ErrorCode.URL_FORMAT_ERROR_2, null, Constants.URL_FORMAT, null);
         } else if (url.startsWith(Constants.START_URL)) {
-            return new JdbcConnection(url, info, null, null);
+            return new JdbcConnection(url, info, null, null, false);
         } else if (url.equals(DEFAULT_URL)) {
             return DEFAULT_CONNECTION.get();
         } else {
@@ -141,6 +141,7 @@ public class Driver implements java.sql.Driver, JdbcDriverBackwardsCompat {
 
     /**
      * INTERNAL
+     * @return instance of the driver registered with the DriverManager
      */
     public static synchronized Driver load() {
         try {
@@ -172,6 +173,7 @@ public class Driver implements java.sql.Driver, JdbcDriverBackwardsCompat {
      * INTERNAL
      * Sets, on a per-thread basis, the default-connection for
      * user-defined functions.
+     * @param c to set default to
      */
     public static void setDefaultConnection(Connection c) {
         if (c == null) {
@@ -183,6 +185,7 @@ public class Driver implements java.sql.Driver, JdbcDriverBackwardsCompat {
 
     /**
      * INTERNAL
+     * @param thread to set context class loader for
      */
     public static void setThreadContextClassLoader(Thread thread) {
         // Apache Tomcat: use the classloader of the driver to avoid the

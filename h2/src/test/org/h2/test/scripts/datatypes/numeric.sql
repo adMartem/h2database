@@ -1,4 +1,4 @@
--- Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+-- Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
 -- and the EPL 1.0 (https://h2database.com/html/license.html).
 -- Initial Developer: H2 Group
 --
@@ -6,7 +6,7 @@
 CREATE MEMORY TABLE TEST(
     N1 NUMERIC, N2 NUMERIC(10), N3 NUMERIC(10, 0), N4 NUMERIC(10, 2),
     D1 DECIMAL, D2 DECIMAL(10), D3 DECIMAL(10, 0), D4 DECIMAL(10, 2), D5 DEC,
-    X1 NUMBER);
+    X1 NUMBER(10), X2 NUMBER(10, 2));
 > ok
 
 SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_PRECISION_RADIX, NUMERIC_SCALE,
@@ -23,8 +23,9 @@ SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_PRECISION_RADIX, NUMER
 > D3          NUMERIC   10                10                      0             DECIMAL            10                         0
 > D4          NUMERIC   10                10                      2             DECIMAL            10                         2
 > D5          NUMERIC   100000            10                      0             DECIMAL            null                       null
-> X1          NUMERIC   100000            10                      0             NUMERIC            null                       null
-> rows (ordered): 10
+> X1          NUMERIC   10                10                      0             NUMERIC            10                         null
+> X2          NUMERIC   10                10                      2             NUMERIC            10                         2
+> rows (ordered): 11
 
 DROP TABLE TEST;
 > ok
@@ -183,5 +184,37 @@ INSERT INTO TEST VALUES CAST(20 AS NUMERIC(2));
 DROP TABLE TEST;
 > ok
 
+SET MODE PostgreSQL;
+> ok
+
+CREATE TABLE TEST(A NUMERIC, B DECIMAL, C DEC, D NUMERIC(1));
+> ok
+
+SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_PRECISION_RADIX, NUMERIC_SCALE,
+    DECLARED_DATA_TYPE, DECLARED_NUMERIC_PRECISION, DECLARED_NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_NAME = 'TEST' ORDER BY ORDINAL_POSITION;
+> COLUMN_NAME DATA_TYPE NUMERIC_PRECISION NUMERIC_PRECISION_RADIX NUMERIC_SCALE DECLARED_DATA_TYPE DECLARED_NUMERIC_PRECISION DECLARED_NUMERIC_SCALE
+> ----------- --------- ----------------- ----------------------- ------------- ------------------ -------------------------- ----------------------
+> A           DECFLOAT  100000            10                      null          DECFLOAT           null                       null
+> B           DECFLOAT  100000            10                      null          DECFLOAT           null                       null
+> C           DECFLOAT  100000            10                      null          DECFLOAT           null                       null
+> D           NUMERIC   1                 10                      0             NUMERIC            1                          null
+> rows (ordered): 4
+
+DROP TABLE TEST;
+> ok
+
 SET MODE Regular;
+> ok
+
+CREATE TABLE TEST(A NUMERIC(100000), B NUMERIC(100)) AS VALUES (1E99999, 1E99);
+> ok
+
+SELECT CHAR_LENGTH(CAST(A / B AS VARCHAR)) FROM TEST;
+>> 99901
+
+SELECT CHAR_LENGTH(CAST(A / CAST(B AS NUMERIC(200, 100)) AS VARCHAR)) FROM TEST;
+>> 99901
+
+DROP TABLE TEST;
 > ok

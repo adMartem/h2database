@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -175,6 +175,10 @@ public class TransactionStore {
         return store.openMap(TYPE_REGISTRY_NAME, typeRegistryBuilder);
     }
 
+    /**
+     * Initialize the store without any RollbackListener.
+     * @see #init(RollbackListener)
+     */
     public void init() {
         init(ROLLBACK_LISTENER_NONE);
     }
@@ -183,6 +187,8 @@ public class TransactionStore {
      * Initialize the store. This is needed before a transaction can be opened.
      * If the transaction store is corrupt, this method can throw an exception,
      * in which case the store can only be used for reading.
+     *
+     * @param listener to notify about transaction rollback
      */
     public void init(RollbackListener listener) {
         if (!init) {
@@ -444,6 +450,7 @@ public class TransactionStore {
      * @param transactionId id of the transaction
      * @param logId sequential number of the log record within transaction
      * @param record Record(mapId, key, previousValue) to add
+     * @return key for the added record
      */
     long addUndoLogRecord(int transactionId, long logId, Record<?,?> record) {
         MVMap<Long, Record<?,?>> undoLog = undoLogs[transactionId];
@@ -538,20 +545,21 @@ public class TransactionStore {
         } while(!success);
     }
 
-    /**
-     * Open the map with the given name.
-     *
-     * @param <K> the key type
-     * @param name the map name
-     * @param keyType the key type
-     * @param valueType the value type
-     * @return the map
-     */
     <K,V> MVMap<K, VersionedValue<V>> openVersionedMap(String name, DataType<K> keyType, DataType<V> valueType) {
         VersionedValueType<V,?> vt = valueType == null ? null : new VersionedValueType<>(valueType);
         return openMap(name, keyType, vt);
     }
 
+    /**
+     * Open the map with the given name.
+     *
+     * @param <K> the key type
+     * @param <V> the value type
+     * @param name the map name
+     * @param keyType the key type
+     * @param valueType the value type
+     * @return the map
+     */
     public <K,V> MVMap<K, V> openMap(String name, DataType<K> keyType, DataType<V> valueType) {
         return store.openMap(name, new TxMapBuilder<K, V>(typeRegistry, dataType)
                                             .keyType(keyType).valueType(valueType));
@@ -559,6 +567,9 @@ public class TransactionStore {
 
     /**
      * Open the map with the given id.
+     *
+     * @param <K> key type
+     * @param <V> value type
      *
      * @param mapId the id
      * @return the map
@@ -617,7 +628,7 @@ public class TransactionStore {
                 preparedTransactions.remove(txId);
             }
 
-            if (store.getFileStore() != null) {
+            if (store.isVersioningRequired()) {
                 if (wasStored || store.getAutoCommitDelay() == 0) {
                     store.commit();
                 } else {

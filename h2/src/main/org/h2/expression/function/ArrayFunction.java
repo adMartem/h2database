@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -13,6 +13,7 @@ import org.h2.engine.Mode.ModeEnum;
 import org.h2.expression.Expression;
 import org.h2.expression.TypedValueExpression;
 import org.h2.message.DbException;
+import org.h2.mvstore.db.Store;
 import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 import org.h2.value.ValueArray;
@@ -148,10 +149,11 @@ public final class ArrayFunction extends FunctionN {
         switch (function) {
         case TRIM_ARRAY:
         case ARRAY_SLICE: {
-            type = args[0].getType();
+            Expression arg = args[0];
+            type = arg.getType();
             int t = type.getValueType();
             if (t != Value.ARRAY && t != Value.NULL) {
-                throw DbException.getInvalidValueException(getName() + " array argument", type.getTraceSQL());
+                throw Store.getInvalidExpressionTypeException(getName() + " array argument", arg);
             }
             break;
         }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -222,6 +222,18 @@ public class ErrorCode {
      * </pre>
      */
     public static final int ARRAY_ELEMENT_ERROR_2 = 22034;
+
+    /**
+     * The error with code <code>22035</code> is thrown when an
+     * attempt is made to update an element in NULL array.
+     *
+     * Example:
+     * <pre>
+     * CREATE TABLE TEST(A INTEGER ARRAY) AS VALUES NULL;
+     * UPDATE TEST SET A[1] = 2;
+     * </pre>
+     */
+    public static final int NULL_VALUE_IN_ARRAY_TARGET = 22035;
 
     // 23: constraint violation
 
@@ -1714,7 +1726,7 @@ public class ErrorCode {
 
     /**
      * The error with code <code>90110</code> is thrown when
-     * trying to compare values of incomparable data types.
+     * trying to compare or combine values of incomparable data types.
      * Example:
      * <pre>
      * CREATE TABLE test (id INT NOT NULL, name VARCHAR);
@@ -1817,8 +1829,8 @@ public class ErrorCode {
      * Example:
      * <pre>
      * CREATE DOMAIN INTEGER AS VARCHAR;
-     * CREATE DOMAIN EMAIL AS VARCHAR CHECK LOCATE('@', VALUE) > 0;
-     * CREATE DOMAIN EMAIL AS VARCHAR CHECK LOCATE('@', VALUE) > 0;
+     * CREATE DOMAIN EMAIL AS VARCHAR CHECK LOCATE('@', VALUE) &gt; 0;
+     * CREATE DOMAIN EMAIL AS VARCHAR CHECK LOCATE('@', VALUE) &gt; 0;
      * </pre>
      */
     public static final int DOMAIN_ALREADY_EXISTS_1 = 90119;
@@ -2248,6 +2260,8 @@ public class ErrorCode {
 
     /**
      * INTERNAL
+     * @param errorCode to check
+     * @return true if provided code is common, false otherwise
      */
     public static boolean isCommon(int errorCode) {
         // this list is sorted alphabetically
@@ -2276,6 +2290,8 @@ public class ErrorCode {
 
     /**
      * INTERNAL
+     * @param errorCode to get state for
+     * @return error state
      */
     public static String getState(int errorCode) {
         // To convert SQLState to error code, replace
@@ -2296,6 +2312,7 @@ public class ErrorCode {
         case COLUMN_COUNT_DOES_NOT_MATCH: return "21S02";
 
         // 22: data exception
+        case NULL_VALUE_IN_ARRAY_TARGET: return "2200E";
         case ARRAY_ELEMENT_ERROR_2: return "2202E";
 
         // 42: syntax error or access rule violation

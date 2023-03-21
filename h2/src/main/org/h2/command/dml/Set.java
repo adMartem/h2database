@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -83,7 +83,7 @@ public class Set extends Prepared {
 
     @Override
     public long update() {
-        Database database = session.getDatabase();
+        Database database = getDatabase();
         String name = SetTypes.getTypeName(type);
         switch (type) {
         case SetTypes.ALLOW_LITERALS: {
@@ -450,14 +450,6 @@ public class Set extends Prepared {
             session.setThrottle(value);
             break;
         }
-        case SetTypes.UNDO_LOG: {
-            int value = getIntValue();
-            if (value < 0 || value > 1) {
-                throw DbException.getInvalidValueException("UNDO_LOG", value);
-            }
-            session.setUndoLogEnabled(value == 1);
-            break;
-        }
         case SetTypes.VARIABLE: {
             Expression expr = expression.optimize(session);
             session.setVariable(stringValue, expr.getValue(session));
@@ -485,15 +477,6 @@ public class Set extends Prepared {
                 database.setRetentionTime(value);
                 addOrUpdateSetting(name, null, value);
             }
-            break;
-        }
-        case SetTypes.FORCE_JOIN_ORDER: {
-            int value = getIntValue();
-            if (value != 0 && value != 1) {
-                throw DbException.getInvalidValueException("FORCE_JOIN_ORDER",
-                        value);
-            }
-            session.setForceJoinOrder(value == 1);
             break;
         }
         case SetTypes.LAZY_QUERY_EXECUTION: {
@@ -590,7 +573,7 @@ public class Set extends Prepared {
             try {
                 timeZone = TimeZoneProvider.ofId(v.getString());
             } catch (IllegalArgumentException ex) {
-                throw DbException.getInvalidValueException("time zone", v.getTraceSQL());
+                throw DbException.getInvalidValueException("TIME ZONE", v.getTraceSQL());
             }
             return timeZone;
         } else if (v == ValueNull.INSTANCE) {

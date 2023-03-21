@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -18,6 +18,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -378,6 +384,7 @@ public class Utils {
      *
      * @param name the name of the resource
      * @return the resource data
+     * @throws IOException on failure
      */
     public static byte[] getResource(String name) throws IOException {
         byte[] data = RESOURCES.get(name);
@@ -434,6 +441,7 @@ public class Utils {
      *            "java.lang.System.gc"
      * @param params the method parameters
      * @return the return value from this call
+     * @throws Exception on failure
      */
     public static Object callStaticMethod(String classAndMethod,
             Object... params) throws Exception {
@@ -452,6 +460,7 @@ public class Utils {
      * @param methodName a string with the method name
      * @param params the method parameters
      * @return the return value from this call
+     * @throws Exception on failure
      */
     public static Object callMethod(
             Object instance,
@@ -491,6 +500,7 @@ public class Utils {
      * @param className a string with the entire class, eg. "java.lang.Integer"
      * @param params the constructor parameters
      * @return the newly created object
+     * @throws Exception on failure
      */
     public static Object newInstance(String className, Object... params)
             throws Exception {
@@ -739,6 +749,48 @@ public class Utils {
             time = 1L;
         }
         return time;
+    }
+
+    public static ThreadPoolExecutor createSingleThreadExecutor(String threadName) {
+        return createSingleThreadExecutor(threadName, new LinkedBlockingQueue<>());
+    }
+
+    public static ThreadPoolExecutor createSingleThreadExecutor(String threadName, BlockingQueue<Runnable> workQueue) {
+        return new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS, workQueue,
+                                        r -> {
+                                            Thread thread = new Thread(r, threadName);
+                                            thread.setDaemon(true);
+                                            return thread;
+                                        });
+    }
+
+    /**
+     * Makes sure that all currently submitted tasks are processed before this method returns.
+     * It is assumed that there will be no new submissions to this executor, once this method has started.
+     * It is assumed that executor is single-threaded, and flush is done by submitting a dummy task
+     * and waiting for its completion.
+     * @param executor to flush
+     */
+    public static void flushExecutor(ThreadPoolExecutor executor) {
+        if (executor != null) {
+            try {
+                executor.submit(() -> {}).get();
+            } catch (InterruptedException ignore) {/**/
+            } catch (RejectedExecutionException ex) {
+                shutdownExecutor(executor);
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    public static void shutdownExecutor(ThreadPoolExecutor executor) {
+        if (executor != null) {
+            executor.shutdown();
+            try {
+                executor.awaitTermination(1, TimeUnit.DAYS);
+            } catch (InterruptedException ignore) {/**/}
+        }
     }
 
     /**

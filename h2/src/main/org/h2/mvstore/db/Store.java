@@ -1,12 +1,10 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.mvstore.db;
 
-import java.io.InputStream;
-import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
@@ -29,10 +27,13 @@ import org.h2.mvstore.tx.Transaction;
 import org.h2.mvstore.tx.TransactionStore;
 import org.h2.mvstore.type.MetaType;
 import org.h2.store.InDoubtTransaction;
-import org.h2.store.fs.FileChannelInputStream;
 import org.h2.store.fs.FileUtils;
+import org.h2.util.HasSQL;
 import org.h2.util.StringUtils;
 import org.h2.util.Utils;
+import org.h2.value.TypeInfo;
+import org.h2.value.Typed;
+import org.h2.value.Value;
 
 /**
  * A store with open tables.
@@ -48,7 +49,7 @@ public final class Store {
     static char[] decodePassword(byte[] key) {
         char[] password = new char[key.length / 2];
         for (int i = 0; i < password.length; i++) {
-            password[i] = (char) (((key[i + i] & 255) << 16) | ((key[i + i + 1]) & 255));
+            password[i] = (char) (((key[i + i] & 255) << 16) | (key[i + i + 1] & 255));
         }
         return password;
     }
@@ -81,14 +82,15 @@ public final class Store {
      * Creates the store.
      *
      * @param db the database
+     * @param key for file encryption
      */
-    public Store(Database db) {
-        byte[] key = db.getFileEncryptionKey();
+    public Store(Database db, byte[] key) {
         String dbPath = db.getDatabasePath();
         MVStore.Builder builder = new MVStore.Builder();
         boolean encrypted = false;
         if (dbPath != null) {
             String fileName = dbPath + Constants.SUFFIX_MV_FILE;
+            this.fileName = fileName;
             MVStoreTool.compactCleanUp(fileName);
             builder.fileName(fileName);
             builder.pageSplitSize(db.getPageSize());
@@ -123,12 +125,12 @@ public final class Store {
             // otherwise background thread would compete for store lock
             // with maps opening procedure
             builder.autoCommitDisabled();
+        } else {
+            fileName = null;
         }
         this.encrypted = encrypted;
         try {
             this.mvStore = builder.open();
-            FileStore fs = mvStore.getFileStore();
-            fileName = fs != null ? fs.getFileName() : null;
             if (!db.getSettings().reuseSpace) {
                 mvStore.setReuseSpace(false);
             }
@@ -152,6 +154,8 @@ public final class Store {
         switch (e.getErrorCode()) {
         case DataUtils.ERROR_CLOSED:
             throw DbException.get(ErrorCode.DATABASE_IS_CLOSED, e, fileName);
+        case DataUtils.ERROR_UNSUPPORTED_FORMAT:
+            throw DbException.get(ErrorCode.FILE_VERSION_ERROR_1, e, fileName);
         case DataUtils.ERROR_FILE_CORRUPT:
             if (encrypted) {
                 throw DbException.get(ErrorCode.FILE_ENCRYPTION_ERROR_1, e, fileName);
@@ -165,6 +169,22 @@ public final class Store {
         default:
             throw DbException.get(ErrorCode.GENERAL_ERROR_1, e, e.getMessage());
         }
+    }
+
+    /**
+     * Gets a SQL exception meaning the type of expression is invalid or unknown.
+     *
+     * @param param the name of the parameter
+     * @param e the expression
+     * @return the exception
+     */
+    public static DbException getInvalidExpressionTypeException(String param, Typed e) {
+        TypeInfo type = e.getType();
+        if (type.getValueType() == Value.UNKNOWN) {
+            return DbException.get(ErrorCode.UNKNOWN_DATA_TYPE_1,
+                                    (e instanceof HasSQL ? (HasSQL) e : type).getTraceSQL());
+        }
+        return DbException.get(ErrorCode.INVALID_VALUE_2, type.getTraceSQL(), param);
     }
 
     public MVStore getMvStore() {
@@ -218,11 +238,7 @@ public final class Store {
      * Store all pending changes.
      */
     public void flush() {
-        FileStore s = mvStore.getFileStore();
-        if (s == null || s.isReadOnly()) {
-            return;
-        }
-        if (!mvStore.compact(50, 4 * 1024 * 1024)) {
+        if (mvStore.isPersistent() && !mvStore.isReadOnly()) {
             mvStore.commit();
         }
     }
@@ -231,9 +247,7 @@ public final class Store {
      * Close the store, without persisting changes.
      */
     public void closeImmediately() {
-        if (!mvStore.isClosed()) {
-            mvStore.closeImmediately();
-        }
+        mvStore.closeImmediately();
     }
 
     /**
@@ -293,15 +307,7 @@ public final class Store {
      * @param kb the maximum size in KB
      */
     public void setCacheSize(int kb) {
-        mvStore.setCacheSize(Math.max(1, kb / 1024));
-    }
-
-    public InputStream getInputStream() {
-        FileChannel fc = mvStore.getFileStore().getEncryptedFile();
-        if (fc == null) {
-            fc = mvStore.getFileStore().getFile();
-        }
-        return new FileChannelInputStream(fc, false);
+        mvStore.setCacheSize(kb);
     }
 
     /**
@@ -327,19 +333,14 @@ public final class Store {
 
     /**
      * Close the store. Pending changes are persisted.
-     * If time is allocated for housekeeping, chunks with a low
-     * fill rate are compacted, and some chunks are put next to each other.
-     * If time is unlimited then full compaction is performed, which uses
-     * different algorithm - opens alternative temp store and writes all live
-     * data there, then replaces this store with a new one.
      *
-     * @param allowedCompactionTime time (in milliseconds) alloted for file
-     *                              compaction activity, 0 means no compaction,
-     *                              -1 means unlimited time (full compaction)
+     * @param allowedCompactionTime time (in milliseconds) allotted for store
+     *                              housekeeping activity, 0 means none,
+     *                              -1 means unlimited time (i.e.full compaction)
      */
     public void close(int allowedCompactionTime) {
         try {
-            FileStore fileStore = mvStore.getFileStore();
+            FileStore<?> fileStore = mvStore.getFileStore();
             if (!mvStore.isClosed() && fileStore != null) {
                 boolean compactFully = allowedCompactionTime == -1;
                 if (fileStore.isReadOnly()) {
@@ -351,32 +352,48 @@ public final class Store {
                     allowedCompactionTime = 0;
                 }
 
+                String fileName = null;
+                FileStore<?> targetFileStore = null;
+                if (compactFully) {
+                    fileName = fileStore.getFileName();
+                    String tempName = fileName + Constants.SUFFIX_MV_STORE_TEMP_FILE;
+                    FileUtils.delete(tempName);
+                    targetFileStore = fileStore.open(tempName, false);
+                }
+
                 mvStore.close(allowedCompactionTime);
 
-                String fileName = fileStore.getFileName();
                 if (compactFully && FileUtils.exists(fileName)) {
                     // the file could have been deleted concurrently,
                     // so only compact if the file still exists
-                    MVStoreTool.compact(fileName, true);
+                    compact(fileName, targetFileStore);
                 }
             }
         } catch (MVStoreException e) {
-            int errorCode = e.getErrorCode();
-            if (errorCode == DataUtils.ERROR_WRITING_FAILED) {
-                // disk full - ok
-            } else if (errorCode == DataUtils.ERROR_FILE_CORRUPT) {
-                // wrong encryption key - ok
-            }
             mvStore.closeImmediately();
             throw DbException.get(ErrorCode.IO_EXCEPTION_1, e, "Closing");
         }
+    }
+
+
+    private static void compact(String sourceFilename, FileStore<?> targetFileStore) {
+        MVStore.Builder targetBuilder = new MVStore.Builder().compress().adoptFileStore(targetFileStore);
+        try (MVStore targetMVStore = targetBuilder.open()) {
+            FileStore<?> sourceFileStore = targetFileStore.open(sourceFilename, true);
+            MVStore.Builder sourceBuilder = new MVStore.Builder();
+            sourceBuilder.readOnly().adoptFileStore(sourceFileStore);
+            try (MVStore sourceMVStore = sourceBuilder.open()) {
+                MVStoreTool.compact(sourceMVStore, targetMVStore);
+            }
+        }
+        MVStoreTool.moveAtomicReplace(targetFileStore.getFileName(), sourceFilename);
     }
 
     /**
      * Start collecting statistics.
      */
     public void statisticsStart() {
-        FileStore fs = mvStore.getFileStore();
+        FileStore<?> fs = mvStore.getFileStore();
         statisticsStart = fs == null ? 0 : fs.getReadCount();
     }
 
@@ -387,7 +404,7 @@ public final class Store {
      */
     public Map<String, Integer> statisticsEnd() {
         HashMap<String, Integer> map = new HashMap<>();
-        FileStore fs = mvStore.getFileStore();
+        FileStore<?> fs = mvStore.getFileStore();
         int reads = fs == null ? 0 : (int) (fs.getReadCount() - statisticsStart);
         map.put("reads", reads);
         return map;

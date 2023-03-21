@@ -1,11 +1,9 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.jdbc.meta;
-
-import static org.h2.util.HasSQL.DEFAULT_SQL_FLAGS;
 
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -23,6 +21,7 @@ import org.h2.constraint.ConstraintReferential;
 import org.h2.constraint.ConstraintUnique;
 import org.h2.engine.Database;
 import org.h2.engine.DbObject;
+import org.h2.engine.Mode;
 import org.h2.engine.Right;
 import org.h2.engine.SessionLocal;
 import org.h2.engine.User;
@@ -34,10 +33,10 @@ import org.h2.result.ResultInterface;
 import org.h2.result.SimpleResult;
 import org.h2.result.SortOrder;
 import org.h2.schema.FunctionAlias;
+import org.h2.schema.FunctionAlias.JavaMethod;
 import org.h2.schema.Schema;
 import org.h2.schema.SchemaObject;
 import org.h2.schema.UserDefinedFunction;
-import org.h2.schema.FunctionAlias.JavaMethod;
 import org.h2.table.Column;
 import org.h2.table.IndexColumn;
 import org.h2.table.Table;
@@ -107,8 +106,6 @@ public final class DatabaseMetaLocal extends DatabaseMetaLocalBase {
     private static final ValueSmallint PROCEDURE_RETURNS_RESULT = ValueSmallint
             .get((short) DatabaseMetaData.procedureReturnsResult);
 
-    private static final ValueSmallint TABLE_INDEX_STATISTIC = ValueSmallint.get(DatabaseMetaData.tableIndexStatistic);
-
     private static final ValueSmallint TABLE_INDEX_HASHED = ValueSmallint.get(DatabaseMetaData.tableIndexHashed);
 
     private static final ValueSmallint TABLE_INDEX_OTHER = ValueSmallint.get(DatabaseMetaData.tableIndexOther);
@@ -136,18 +133,28 @@ public final class DatabaseMetaLocal extends DatabaseMetaLocalBase {
 
     @Override
     public String getSQLKeywords() {
-        return "CURRENT_CATALOG," //
-                + "CURRENT_SCHEMA," //
-                + "GROUPS," //
-                + "IF,ILIKE,INTERSECTS," //
-                + "KEY," //
-                + "LIMIT," //
-                + "MINUS," //
-                + "OFFSET," //
-                + "QUALIFY," //
-                + "REGEXP,ROWNUM," //
-                + "TOP,"//
-                + "_ROWID_";
+        StringBuilder builder = new StringBuilder(103).append( //
+                "CURRENT_CATALOG," //
+                        + "CURRENT_SCHEMA," //
+                        + "GROUPS," //
+                        + "IF,ILIKE," //
+                        + "KEY,");
+        Mode mode = session.getMode();
+        if (mode.limit) {
+            builder.append("LIMIT,");
+        }
+        if (mode.minusIsExcept) {
+            builder.append("MINUS,");
+        }
+        builder.append( //
+                "OFFSET," //
+                        + "QUALIFY," //
+                        + "REGEXP,ROWNUM,");
+        if (mode.topInSelect || mode.topInDML) {
+            builder.append("TOP,");
+        }
+        return builder.append("_ROWID_") //
+                .toString();
     }
 
     @Override
@@ -863,20 +870,7 @@ public final class DatabaseMetaLocal extends DatabaseMetaLocalBase {
     }
 
     private Value getDataTypeName(TypeInfo typeInfo) {
-        String name;
-        switch (typeInfo.getValueType()) {
-        case Value.ARRAY:
-            typeInfo = (TypeInfo) typeInfo.getExtTypeInfo();
-            // Use full type names with parameters for elements
-            name = typeInfo.getSQL(new StringBuilder(), DEFAULT_SQL_FLAGS).append(" ARRAY").toString();
-            break;
-        case Value.ROW:
-            name = typeInfo.getSQL(DEFAULT_SQL_FLAGS);
-            break;
-        default:
-            name = typeInfo.getDeclaredTypeName();
-        }
-        return getString(name);
+        return getString(typeInfo.getDeclaredTypeName());
     }
 
     @Override
@@ -1193,7 +1187,7 @@ public final class DatabaseMetaLocal extends DatabaseMetaLocalBase {
                     // FIXED_PREC_SCALE
                     ValueBoolean.get(t.type == Value.NUMERIC),
                     // AUTO_INCREMENT
-                    ValueBoolean.FALSE,
+                    ValueBoolean.get(DataType.isNumericType(i)),
                     // LOCAL_TYPE_NAME
                     name,
                     // MINIMUM_SCALE
@@ -1260,61 +1254,56 @@ public final class DatabaseMetaLocal extends DatabaseMetaLocalBase {
 
     private void getIndexInfo(Value catalogValue, Value schemaValue, Table table, boolean unique, boolean approximate,
             SimpleResult result, Database db) {
-        for (Index index : table.getIndexes()) {
-            if (index.getCreateSQL() == null) {
-                continue;
-            }
-            int uniqueColumnCount = index.getUniqueColumnCount();
-            if (unique && uniqueColumnCount == 0) {
-                continue;
-            }
-            Value tableValue = getString(table.getName());
-            Value indexValue = getString(index.getName());
-            IndexColumn[] cols = index.getIndexColumns();
-            ValueSmallint type = TABLE_INDEX_STATISTIC;
-            type: if (uniqueColumnCount == cols.length) {
-                for (IndexColumn c : cols) {
-                    if (c.column.isNullable()) {
-                        break type;
+        ArrayList<Index> indexes = table.getIndexes();
+        if (indexes != null) {
+            for (Index index : indexes) {
+                if (index.getCreateSQL() == null) {
+                    continue;
+                }
+                int uniqueColumnCount = index.getUniqueColumnCount();
+                if (unique && uniqueColumnCount == 0) {
+                    continue;
+                }
+                Value tableValue = getString(table.getName());
+                Value indexValue = getString(index.getName());
+                IndexColumn[] cols = index.getIndexColumns();
+                ValueSmallint type = index.getIndexType().isHash() ? TABLE_INDEX_HASHED : TABLE_INDEX_OTHER;
+                for (int i = 0, l = cols.length; i < l; i++) {
+                    IndexColumn c = cols[i];
+                    boolean nonUnique = i >= uniqueColumnCount;
+                    if (unique && nonUnique) {
+                        break;
                     }
+                    result.addRow(
+                            // TABLE_CAT
+                            catalogValue,
+                            // TABLE_SCHEM
+                            schemaValue,
+                            // TABLE_NAME
+                            tableValue,
+                            // NON_UNIQUE
+                            ValueBoolean.get(nonUnique),
+                            // INDEX_QUALIFIER
+                            catalogValue,
+                            // INDEX_NAME
+                            indexValue,
+                            // TYPE
+                            type,
+                            // ORDINAL_POSITION
+                            ValueSmallint.get((short) (i + 1)),
+                            // COLUMN_NAME
+                            getString(c.column.getName()),
+                            // ASC_OR_DESC
+                            getString((c.sortType & SortOrder.DESCENDING) != 0 ? "D" : "A"),
+                            // CARDINALITY
+                            ValueBigint.get(approximate //
+                                    ? index.getRowCountApproximation(session)
+                                    : index.getRowCount(session)),
+                            // PAGES
+                            ValueBigint.get(index.getDiskSpaceUsed() / db.getPageSize()),
+                            // FILTER_CONDITION
+                            ValueNull.INSTANCE);
                 }
-                type = index.getIndexType().isHash() ? TABLE_INDEX_HASHED : TABLE_INDEX_OTHER;
-            }
-            for (int i = 0, l = cols.length; i < l; i++) {
-                IndexColumn c = cols[i];
-                boolean nonUnique = i >= uniqueColumnCount;
-                if (unique && nonUnique) {
-                    break;
-                }
-                result.addRow(
-                        // TABLE_CAT
-                        catalogValue,
-                        // TABLE_SCHEM
-                        schemaValue,
-                        // TABLE_NAME
-                        tableValue,
-                        // NON_UNIQUE
-                        ValueBoolean.get(nonUnique),
-                        // INDEX_QUALIFIER
-                        catalogValue,
-                        // INDEX_NAME
-                        indexValue,
-                        // TYPE
-                        type,
-                        // ORDINAL_POSITION
-                        ValueSmallint.get((short) (i + 1)),
-                        // COLUMN_NAME
-                        getString(c.column.getName()),
-                        // ASC_OR_DESC
-                        getString((c.sortType & SortOrder.DESCENDING) != 0 ? "D" : "A"),
-                        // CARDINALITY
-                        ValueBigint.get(approximate //
-                                ? index.getRowCountApproximation(session)
-                                : index.getRowCount(session)),
-                        // PAGES
-                        ValueBigint.get(index.getDiskSpaceUsed() / db.getPageSize()),
-                        // FILTER_CONDITION
-                        ValueNull.INSTANCE);
             }
         }
     }

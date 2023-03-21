@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -9,6 +9,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 
 import org.h2.command.CommandInterface;
@@ -38,7 +39,7 @@ public class Help extends Prepared {
     public Help(SessionLocal session, String[] conditions) {
         super(session);
         this.conditions = conditions;
-        Database db = session.getDatabase();
+        Database db = getDatabase();
         expressions = new Expression[] { //
                 new ExpressionColumn(db, new Column("SECTION", TypeInfo.TYPE_VARCHAR)), //
                 new ExpressionColumn(db, new Column("TOPIC", TypeInfo.TYPE_VARCHAR)), //
@@ -82,7 +83,12 @@ public class Help extends Prepared {
         result.done();
         return result;
     }
-    
+
+    /**
+     * Strip out the special annotations we use to help build the railroad/BNF diagrams
+     * @param s to process
+     * @return cleaned text
+     */
     public static String stripAnnotationsFromSyntax(String s) {
         // SYNTAX column - Strip out the special annotations we use to
         // help build the railroad/BNF diagrams.
@@ -90,7 +96,11 @@ public class Help extends Prepared {
                 .replaceAll("@c@", "").replaceAll("@h2@", "").trim();
     }
 
-    /** process the help text column we load from help.csv */
+    /**
+     * Sanitize value read from csv file (i.e. help.csv)
+     * @param s text to process
+     * @return text without wrapping quotes and trimmed
+     */
     public static String processHelpText(String s) {
         int len = s.length();
         int end = 0;
@@ -118,7 +128,8 @@ public class Help extends Prepared {
      *             on I/O exception
      */
     public static ResultSet getTable() throws IOException {
-        Reader reader = new InputStreamReader(new ByteArrayInputStream(Utils.getResource("/org/h2/res/help.csv")));
+        Reader reader = new InputStreamReader(new ByteArrayInputStream(Utils.getResource("/org/h2/res/help.csv")),
+                StandardCharsets.UTF_8);
         Csv csv = new Csv();
         csv.setLineCommentCharacter('#');
         return csv.read(reader, null);

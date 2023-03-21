@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -11,6 +11,7 @@ import org.h2.engine.Mode.ModeEnum;
 import org.h2.engine.SessionLocal;
 import org.h2.expression.Expression;
 import org.h2.expression.ExpressionVisitor;
+import org.h2.expression.function.CurrentDateTimeValueFunction;
 import org.h2.expression.function.FunctionN;
 import org.h2.message.DbException;
 import org.h2.value.Value;
@@ -49,11 +50,14 @@ public abstract class ModeFunction extends FunctionN {
 
     private static ModeFunction getCompatibilityModeFunction(String name, ModeEnum modeEnum) {
         switch (modeEnum) {
+        case LEGACY:
+            return FunctionsLegacy.getFunction(name);
         case DB2:
         case Derby:
             return FunctionsDB2Derby.getFunction(name);
         case MSSQLServer:
             return FunctionsMSSQLServer.getFunction(name);
+        case MariaDB:
         case MySQL:
             return FunctionsMySQL.getFunction(name);
         case Oracle:
@@ -65,6 +69,43 @@ public abstract class ModeFunction extends FunctionN {
         }
     }
 
+    /**
+     * Get an instance of the given function without parentheses for this
+     * database. If no function with this name is found, null is returned.
+     *
+     * @param database the database
+     * @param name the upper case function name
+     * @param scale the scale, or {@code -1}
+     * @return the function object or null
+     */
+    @SuppressWarnings("incomplete-switch")
+    public static Expression getCompatibilityDateTimeValueFunction(Database database, String name, int scale) {
+        switch (name) {
+        case "SYSDATE":
+            switch (database.getMode().getEnum()) {
+            case LEGACY:
+            case HSQLDB:
+            case Oracle:
+                return new CompatibilityDateTimeValueFunction(CompatibilityDateTimeValueFunction.SYSDATE, -1);
+            }
+            break;
+        case "SYSTIMESTAMP":
+            switch (database.getMode().getEnum()) {
+            case LEGACY:
+            case Oracle:
+                return new CompatibilityDateTimeValueFunction(CompatibilityDateTimeValueFunction.SYSTIMESTAMP, scale);
+            }
+            break;
+        case "TODAY":
+            switch (database.getMode().getEnum()) {
+            case LEGACY:
+            case HSQLDB:
+                return new CurrentDateTimeValueFunction(CurrentDateTimeValueFunction.CURRENT_DATE, scale);
+            }
+            break;
+        }
+        return null;
+    }
 
     /**
      * Creates a new instance of function.
@@ -174,17 +215,8 @@ public abstract class ModeFunction extends FunctionN {
         case ExpressionVisitor.QUERY_COMPARABLE:
         case ExpressionVisitor.READONLY:
             return info.deterministic;
-        case ExpressionVisitor.EVALUATABLE:
-        case ExpressionVisitor.GET_DEPENDENCIES:
-        case ExpressionVisitor.INDEPENDENT:
-        case ExpressionVisitor.NOT_FROM_RESOLVER:
-        case ExpressionVisitor.OPTIMIZABLE_AGGREGATE:
-        case ExpressionVisitor.SET_MAX_DATA_MODIFICATION_ID:
-        case ExpressionVisitor.GET_COLUMNS1:
-        case ExpressionVisitor.GET_COLUMNS2:
-            return true;
         default:
-            throw DbException.getInternalError("type=" + visitor.getType());
+            return true;
         }
     }
 

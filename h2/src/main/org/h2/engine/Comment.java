@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -7,7 +7,6 @@ package org.h2.engine;
 
 import org.h2.message.DbException;
 import org.h2.message.Trace;
-import org.h2.table.Table;
 import org.h2.util.StringUtils;
 
 /**
@@ -23,11 +22,6 @@ public final class Comment extends DbObject {
         super(database, id,  getKey(obj), Trace.DATABASE);
         this.objectType = obj.getType();
         this.quotedObjectName = obj.getSQL(DEFAULT_SQL_FLAGS);
-    }
-
-    @Override
-    public String getCreateSQLForCopy(Table table, String quotedName) {
-        throw DbException.getInternalError(toString());
     }
 
     private static String getTypeName(int type) {

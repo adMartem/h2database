@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -138,14 +138,9 @@ public class SetTypes {
     public static final int SCHEMA_SEARCH_PATH = OPTIMIZE_REUSE_RESULTS + 1;
 
     /**
-     * The type of a SET UNDO_LOG statement.
-     */
-    public static final int UNDO_LOG = SCHEMA_SEARCH_PATH + 1;
-
-    /**
      * The type of a SET REFERENTIAL_INTEGRITY statement.
      */
-    public static final int REFERENTIAL_INTEGRITY = UNDO_LOG + 1;
+    public static final int REFERENTIAL_INTEGRITY = SCHEMA_SEARCH_PATH + 1;
 
     /**
      * The type of a SET MAX_OPERATION_MEMORY statement.
@@ -198,14 +193,9 @@ public class SetTypes {
     public static final int QUERY_STATISTICS_MAX_ENTRIES = QUERY_STATISTICS + 1;
 
     /**
-     * The type of SET FORCE_JOIN_ORDER statement.
-     */
-    public static final int FORCE_JOIN_ORDER = QUERY_STATISTICS_MAX_ENTRIES + 1;
-
-    /**
      * The type of SET LAZY_QUERY_EXECUTION statement.
      */
-    public static final int LAZY_QUERY_EXECUTION = FORCE_JOIN_ORDER + 1;
+    public static final int LAZY_QUERY_EXECUTION = QUERY_STATISTICS_MAX_ENTRIES + 1;
 
     /**
      * The type of SET BUILTIN_ALIAS_OVERRIDE statement.
@@ -287,7 +277,6 @@ public class SetTypes {
         list.add("SCHEMA");
         list.add("OPTIMIZE_REUSE_RESULTS");
         list.add("SCHEMA_SEARCH_PATH");
-        list.add("UNDO_LOG");
         list.add("REFERENTIAL_INTEGRITY");
         list.add("MAX_OPERATION_MEMORY");
         list.add("EXCLUSIVE");
@@ -299,7 +288,6 @@ public class SetTypes {
         list.add("RETENTION_TIME");
         list.add("QUERY_STATISTICS");
         list.add("QUERY_STATISTICS_MAX_ENTRIES");
-        list.add("FORCE_JOIN_ORDER");
         list.add("LAZY_QUERY_EXECUTION");
         list.add("BUILTIN_ALIAS_OVERRIDE");
         list.add("AUTHENTICATOR");

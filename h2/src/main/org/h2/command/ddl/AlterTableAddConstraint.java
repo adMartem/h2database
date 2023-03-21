@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -74,11 +74,11 @@ public class AlterTableAddConstraint extends AlterTable {
             try {
                 if (createdUniqueConstraint != null) {
                     Index index = createdUniqueConstraint.getIndex();
-                    session.getDatabase().removeSchemaObject(session, createdUniqueConstraint);
+                    getDatabase().removeSchemaObject(session, createdUniqueConstraint);
                     createdIndexes.remove(index);
                 }
                 for (Index index : createdIndexes) {
-                    session.getDatabase().removeSchemaObject(session, index);
+                    getDatabase().removeSchemaObject(session, index);
                 }
             } catch (Throwable ex) {
                 e.addSuppressed(ex);
@@ -110,9 +110,9 @@ public class AlterTableAddConstraint extends AlterTable {
             }
             constraintName = null;
         }
-        Database db = session.getDatabase();
+        Database db = getDatabase();
         db.lockMeta(session);
-        table.lock(session, true, true);
+        table.lock(session, Table.EXCLUSIVE_LOCK);
         Constraint constraint;
         switch (type) {
         case CommandInterface.ALTER_TABLE_ADD_CONSTRAINT_PRIMARY_KEY: {
@@ -142,7 +142,7 @@ public class AlterTableAddConstraint extends AlterTable {
                         table.isPersistIndexes(), primaryKeyHash);
                 String indexName = table.getSchema().getUniqueIndexName(
                         session, table, Constants.PREFIX_PRIMARY_KEY);
-                int indexId = session.getDatabase().allocateObjectId();
+                int indexId = getDatabase().allocateObjectId();
                 try {
                     index = table.addIndex(session, indexName, indexId, indexColumns, indexColumns.length, indexType,
                             true, null);
@@ -161,7 +161,25 @@ public class AlterTableAddConstraint extends AlterTable {
             break;
         }
         case CommandInterface.ALTER_TABLE_ADD_CONSTRAINT_UNIQUE:
-            IndexColumn.mapColumns(indexColumns, table);
+            if (indexColumns == null) {
+                Column[] columns = table.getColumns();
+                int columnCount = columns.length;
+                ArrayList<IndexColumn> list = new ArrayList<>(columnCount);
+                for (int i = 0; i < columnCount; i++) {
+                    Column c = columns[i];
+                    if (c.getVisible()) {
+                        IndexColumn indexColumn = new IndexColumn(c.getName());
+                        indexColumn.column = c;
+                        list.add(indexColumn);
+                    }
+                }
+                if (list.isEmpty()) {
+                    throw DbException.get(ErrorCode.SYNTAX_ERROR_1, "UNIQUE(VALUE) on table without columns");
+                }
+                indexColumns = list.toArray(new IndexColumn[0]);
+            } else {
+                IndexColumn.mapColumns(indexColumns, table);
+            }
             constraint = createUniqueConstraint(table, index, indexColumns, false);
             break;
         case CommandInterface.ALTER_TABLE_ADD_CONSTRAINT_CHECK: {
@@ -300,7 +318,7 @@ public class AlterTableAddConstraint extends AlterTable {
         String name;
         Schema tableSchema = table.getSchema();
         if (forForeignKey) {
-            id = session.getDatabase().allocateObjectId();
+            id = getDatabase().allocateObjectId();
             try {
                 tableSchema.reserveUniqueName(constraintName);
                 name = tableSchema.getUniqueConstraintName(session, table);
@@ -327,7 +345,7 @@ public class AlterTableAddConstraint extends AlterTable {
     }
 
     private Index createIndex(Table t, IndexColumn[] cols, boolean unique) {
-        int indexId = session.getDatabase().allocateObjectId();
+        int indexId = getDatabase().allocateObjectId();
         IndexType indexType;
         if (unique) {
             // for unique constraints

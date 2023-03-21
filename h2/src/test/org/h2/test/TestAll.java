@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -14,6 +14,7 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.TimerTask;
 import java.util.concurrent.TimeUnit;
+
 import org.h2.Driver;
 import org.h2.engine.Constants;
 import org.h2.store.fs.FileUtils;
@@ -51,6 +52,7 @@ import org.h2.test.db.TestLargeBlob;
 import org.h2.test.db.TestLinkedTable;
 import org.h2.test.db.TestListener;
 import org.h2.test.db.TestLob;
+import org.h2.test.db.TestMaterializedView;
 import org.h2.test.db.TestMemoryUsage;
 import org.h2.test.db.TestMergeUsing;
 import org.h2.test.db.TestMultiConn;
@@ -59,7 +61,6 @@ import org.h2.test.db.TestMultiThread;
 import org.h2.test.db.TestMultiThreadedKernel;
 import org.h2.test.db.TestOpenClose;
 import org.h2.test.db.TestOptimizations;
-import org.h2.test.db.TestOptimizerHints;
 import org.h2.test.db.TestOutOfMemory;
 import org.h2.test.db.TestPersistentCommonTableExpressions;
 import org.h2.test.db.TestPowerOff;
@@ -123,6 +124,7 @@ import org.h2.test.rowlock.TestRowLocks;
 import org.h2.test.scripts.TestScript;
 import org.h2.test.server.TestAutoServer;
 import org.h2.test.server.TestInit;
+import org.h2.test.server.TestJakartaWeb;
 import org.h2.test.server.TestNestedLoop;
 import org.h2.test.server.TestWeb;
 import org.h2.test.store.TestCacheConcurrentLIRS;
@@ -187,7 +189,6 @@ import org.h2.test.unit.TestFileSystem;
 import org.h2.test.unit.TestFtp;
 import org.h2.test.unit.TestGeometryUtils;
 import org.h2.test.unit.TestIntArray;
-import org.h2.test.unit.TestIntIntHashMap;
 import org.h2.test.unit.TestIntPerfectHash;
 import org.h2.test.unit.TestInterval;
 import org.h2.test.unit.TestJmx;
@@ -735,12 +736,12 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
             addTest(new TestLinkedTable());
             addTest(new TestListener());
             addTest(new TestLob());
+            addTest(new TestMaterializedView());
             addTest(new TestMergeUsing());
             addTest(new TestMultiConn());
             addTest(new TestMultiDimension());
             addTest(new TestMultiThreadedKernel());
             addTest(new TestOpenClose());
-            addTest(new TestOptimizerHints());
             addTest(new TestReadOnly());
             addTest(new TestRecursiveQueries());
             addTest(new TestGeneralCommonTableQueries());
@@ -838,6 +839,7 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
             addTest(new TestQueryCache());
             addTest(new TestUrlJavaObjectSerializer());
             addTest(new TestWeb());
+            addTest(new TestJakartaWeb());
 
             // other unsafe
             addTest(new TestOptimizations());
@@ -875,6 +877,7 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         addTest(new TestRecovery());
         addTest(new RecoverLobTest());
         addTest(createTest("org.h2.test.unit.TestServlet"));
+        addTest(createTest("org.h2.test.unit.TestJakartaServlet"));
         addTest(new TestTimeStampWithTimeZone());
         addTest(new TestValue());
 
@@ -931,7 +934,6 @@ kill -9 `jps -l | grep "org.h2.test." | cut -d " " -f 1`
         addTest(new TestGeometryUtils());
         addTest(new TestInterval());
         addTest(new TestIntArray());
-        addTest(new TestIntIntHashMap());
         addTest(new TestIntPerfectHash());
         addTest(new TestJsonUtils());
         addTest(new TestKeywords());

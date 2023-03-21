@@ -1,11 +1,10 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.engine;
 
-import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -55,7 +54,6 @@ import org.h2.store.FileLock;
 import org.h2.store.FileLockMethod;
 import org.h2.store.FileStore;
 import org.h2.store.InDoubtTransaction;
-import org.h2.store.LobStorageFrontend;
 import org.h2.store.LobStorageInterface;
 import org.h2.store.fs.FileUtils;
 import org.h2.store.fs.encrypt.FileEncrypt;
@@ -132,7 +130,6 @@ public final class Database implements DataHandler, CastDataProvider {
     private final String databaseURL;
     private final String cipher;
     private final byte[] filePasswordHash;
-    private final byte[] fileEncryptionKey;
 
     private final ConcurrentHashMap<String, RightOwner> usersAndRoles = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Setting> settings = new ConcurrentHashMap<>();
@@ -209,7 +206,7 @@ public final class Database implements DataHandler, CastDataProvider {
     private JavaObjectSerializer javaObjectSerializer;
     private String javaObjectSerializerName;
     private volatile boolean javaObjectSerializerInitialized;
-    private boolean queryStatistics;
+    private volatile boolean queryStatistics;
     private int queryStatisticsMaxEntries = Constants.QUERY_STATISTICS_MAX_ENTRIES;
     private QueryStatisticsData queryStatisticsData;
     private RowFactory rowFactory = RowFactory.getRowFactory();
@@ -228,10 +225,9 @@ public final class Database implements DataHandler, CastDataProvider {
         this.compareMode = CompareMode.getInstance(null, 0);
         this.persistent = ci.isPersistent();
         this.filePasswordHash = ci.getFilePasswordHash();
-        this.fileEncryptionKey = ci.getFileEncryptionKey();
         this.databaseName = databaseName;
         this.databaseShortName = parseDatabaseShortName();
-        this.maxLengthInplaceLob = Constants.DEFAULT_MAX_LENGTH_INPLACE_LOB;
+        this.maxLengthInplaceLob = persistent ? Constants.DEFAULT_MAX_LENGTH_INPLACE_LOB : Integer.MAX_VALUE - 8;
         this.cipher = cipher;
         this.autoServerMode = ci.getProperty("AUTO_SERVER", false);
         this.autoServerPort = ci.getProperty("AUTO_SERVER_PORT", 0);
@@ -273,6 +269,9 @@ public final class Database implements DataHandler, CastDataProvider {
         }
         this.allowBuiltinAliasOverride = ci.getProperty("BUILTIN_ALIAS_OVERRIDE", false);
         boolean closeAtVmShutdown = dbSettings.dbCloseOnExit;
+        if (autoServerMode && !closeAtVmShutdown) {
+            throw DbException.getUnsupportedException("AUTO_SERVER=TRUE && DB_CLOSE_ON_EXIT=FALSE");
+        }
         int traceLevelFile = ci.getIntProperty(SetTypes.TRACE_LEVEL_FILE, TraceSystem.DEFAULT_TRACE_LEVEL_FILE);
         int traceLevelSystemOut = ci.getIntProperty(SetTypes.TRACE_LEVEL_SYSTEM_OUT,
                 TraceSystem.DEFAULT_TRACE_LEVEL_SYSTEM_OUT);
@@ -322,7 +321,7 @@ public final class Database implements DataHandler, CastDataProvider {
             }
             starting = true;
             if (dbSettings.mvStore) {
-                store = new Store(this);
+                store = new Store(this, ci.getFileEncryptionKey());
             } else {
                 throw new UnsupportedOperationException();
             }
@@ -466,9 +465,12 @@ public final class Database implements DataHandler, CastDataProvider {
 
     @Override
     public void checkPowerOff() {
-        if (powerOffCount == 0) {
-            return;
+        if (powerOffCount != 0) {
+            checkPowerOff2();
         }
+    }
+
+    private void checkPowerOff2() {
         if (powerOffCount > 1) {
             powerOffCount--;
             return;
@@ -767,7 +769,7 @@ public final class Database implements DataHandler, CastDataProvider {
         if (ASSERT) {
             lockMetaAssertion(session);
         }
-        return meta.lock(session, true, true);
+        return meta.lock(session, Table.EXCLUSIVE_LOCK);
     }
 
     private void lockMetaAssertion(SessionLocal session) {
@@ -1179,9 +1181,6 @@ public final class Database implements DataHandler, CastDataProvider {
                     closeAllSessionsExcept(null);
                 }
             }
-            if (!this.isReadOnly()) {
-                removeOrphanedLobs();
-            }
         }
         try {
             try {
@@ -1190,7 +1189,7 @@ public final class Database implements DataHandler, CastDataProvider {
                         for (Schema schema : schemas.values()) {
                             for (Table table : schema.getAllTablesAndViews(null)) {
                                 if (table.isGlobalTemporary()) {
-                                    table.removeChildrenAndResources(systemSession);
+                                    removeSchemaObject(systemSession, table);
                                 } else {
                                     table.close(systemSession);
                                 }
@@ -1215,22 +1214,16 @@ public final class Database implements DataHandler, CastDataProvider {
                         meta.close(systemSession);
                         systemSession.commit(true);
                     }
-                }
-            } catch (DbException e) {
-                trace.error(e, "close");
-            }
-            tempFileDeleter.deleteAll();
-            try {
-                if (lobSession != null) {
-                    lobSession.close();
-                    lobSession = null;
-                }
-                if (systemSession != null) {
+                    if (lobSession != null) {
+                        lobSession.close();
+                        lobSession = null;
+                    }
                     systemSession.close();
                     systemSession = null;
                 }
+                tempFileDeleter.deleteAll();
                 closeOpenFilesAndUnlock();
-            } catch (DbException e) {
+            } catch (DbException | MVStoreException e) {
                 trace.error(e, "close");
             }
             trace.info("closed");
@@ -1251,24 +1244,15 @@ public final class Database implements DataHandler, CastDataProvider {
         }
     }
 
-    private void removeOrphanedLobs() {
-        // remove all session variables and temporary lobs
-        if (!persistent) {
-            return;
-        }
-        try {
-            lobStorage.removeAllForTable(LobStorageFrontend.TABLE_ID_SESSION_VARIABLE);
-        } catch (DbException e) {
-            trace.error(e, "close");
-        }
-    }
-
     /**
      * Close all open files and unlock the database.
      */
     private synchronized void closeOpenFilesAndUnlock() {
         try {
-            if (!store.getMvStore().isClosed()) {
+            if (lobStorage != null) {
+                lobStorage.close();
+            }
+            if (store != null && !store.getMvStore().isClosed()) {
                 if (compactMode == CommandInterface.SHUTDOWN_IMMEDIATELY) {
                     store.closeImmediately();
                 } else {
@@ -1278,13 +1262,13 @@ public final class Database implements DataHandler, CastDataProvider {
                             dbSettings.defragAlways ? -1 : dbSettings.maxCompactTime;
                     store.close(allowedCompactionTime);
                 }
-            }
-            if (persistent) {
-                // Don't delete temp files if everything is already closed
-                // (maybe in checkPowerOff), the database could be open now
-                // (even from within another process).
-                if (lock != null || fileLockMethod == FileLockMethod.NO || fileLockMethod == FileLockMethod.FS) {
-                    deleteOldTempFiles();
+                if (persistent) {
+                    // Don't delete temp files if everything is already closed
+                    // (maybe in checkPowerOff), the database could be open now
+                    // (even from within another process).
+                    if (lock != null || fileLockMethod == FileLockMethod.NO || fileLockMethod == FileLockMethod.FS) {
+                        deleteOldTempFiles();
+                    }
                 }
             }
         } finally {
@@ -1540,24 +1524,6 @@ public final class Database implements DataHandler, CastDataProvider {
         updateMetaAndFirstLevelChildren(session, obj);
     }
 
-    /**
-     * Create a temporary file in the database folder.
-     *
-     * @return the file name
-     */
-    public String createTempFile() {
-        try {
-            boolean inTempDir = readOnly;
-            String name = databaseName;
-            if (!persistent) {
-                name = "memFS:" + name;
-            }
-            return FileUtils.createTempFile(name, Constants.SUFFIX_TEMP_FILE, inTempDir);
-        } catch (IOException e) {
-            throw DbException.convertIOException(e, databaseName);
-        }
-    }
-
     private void deleteOldTempFiles() {
         String path = FileUtils.getParent(databaseName);
         for (String name : FileUtils.newDirectoryStream(path)) {
@@ -1735,10 +1701,13 @@ public final class Database implements DataHandler, CastDataProvider {
      * @return a unique name
      */
     public synchronized String getTempTableName(String baseName, SessionLocal session) {
+        int maxBaseLength = Constants.MAX_IDENTIFIER_LENGTH - (7 + ValueInteger.DISPLAY_SIZE * 2);
+        if (baseName.length() > maxBaseLength) {
+            baseName = baseName.substring(0, maxBaseLength);
+        }
         String tempName;
         do {
-            tempName = baseName + "_COPY_" + session.getId() +
-                    "_" + nextTempTableId++;
+            tempName = baseName + "_COPY_" + session.getId() + '_' + nextTempTableId++;
         } while (mainSchema.findTableOrView(session, tempName) != null);
         return tempName;
     }
@@ -1808,12 +1777,10 @@ public final class Database implements DataHandler, CastDataProvider {
      * that thread, throw it now.
      */
     void throwLastBackgroundException() {
-        if (!store.getMvStore().isBackgroundThread()) {
-            DbException b = backgroundException.getAndSet(null);
-            if (b != null) {
-                // wrap the exception, so we see it was thrown here
-                throw DbException.get(b.getErrorCode(), b, b.getMessage());
-            }
+        DbException b = backgroundException.getAndSet(null);
+        if (b != null) {
+            // wrap the exception, so we see it was thrown here
+            throw DbException.get(b.getErrorCode(), b, b.getMessage());
         }
     }
 
@@ -2356,9 +2323,20 @@ public final class Database implements DataHandler, CastDataProvider {
         if (l == 0) {
             return false;
         }
-        for (int i = 0; i < l; i++) {
-            int ch = upperName.charAt(i);
-            if (ch < 'A' || ch > 'Z' && ch != '_') {
+        char c = upperName.charAt(0);
+        if (c < 'A' || c > 'Z') {
+            return false;
+        }
+        l--;
+        for (int i = 1; i < l; i++) {
+            c = upperName.charAt(i);
+            if ((c < 'A' || c > 'Z') && c != '_') {
+                return false;
+            }
+        }
+        if (l > 0) {
+            c = upperName.charAt(l);
+            if (c < 'A' || c > 'Z') {
                 return false;
             }
         }
@@ -2368,10 +2346,6 @@ public final class Database implements DataHandler, CastDataProvider {
     @Override
     public int readLob(long lobId, byte[] hmac, long offset, byte[] buff, int off, int length) {
         throw DbException.getInternalError();
-    }
-
-    public byte[] getFileEncryptionKey() {
-        return fileEncryptionKey;
     }
 
     public int getPageSize() {
@@ -2460,13 +2434,19 @@ public final class Database implements DataHandler, CastDataProvider {
 
     @Override
     public ValueTimestampTimeZone currentTimestamp() {
-        // This method should not be reachable
+        Session session = SessionLocal.getThreadLocalSession();
+        if (session != null) {
+            return session.currentTimestamp();
+        }
         throw DbException.getUnsupportedException("Unsafe comparison or cast");
     }
 
     @Override
     public TimeZoneProvider currentTimeZone() {
-        // This method should not be reachable
+        Session session = SessionLocal.getThreadLocalSession();
+        if (session != null) {
+            return session.currentTimeZone();
+        }
         throw DbException.getUnsupportedException("Unsafe comparison or cast");
     }
 

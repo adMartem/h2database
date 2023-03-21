@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -13,6 +13,7 @@ import org.h2.expression.TypedValueExpression;
 import org.h2.expression.aggregate.Aggregate;
 import org.h2.expression.aggregate.AggregateType;
 import org.h2.message.DbException;
+import org.h2.mvstore.db.Store;
 import org.h2.util.Bits;
 import org.h2.value.DataType;
 import org.h2.value.TypeInfo;
@@ -121,28 +122,28 @@ public final class BitFunction extends Function1_2 {
     public Value getValue(SessionLocal session, Value v1, Value v2) {
         switch (function) {
         case BITGET:
-            return bitGet(session, v1, v2);
+            return bitGet(v1, v2);
         case BITCOUNT:
-            return bitCount(session, v1);
+            return bitCount(v1);
         case LSHIFT:
-            return shift(session, v1, v2.getLong(), false);
+            return shift(v1, v2.getLong(), false);
         case RSHIFT: {
             long offset = v2.getLong();
-            return shift(session, v1, offset != Long.MIN_VALUE ? -offset : Long.MAX_VALUE, false);
+            return shift(v1, offset != Long.MIN_VALUE ? -offset : Long.MAX_VALUE, false);
         }
         case ULSHIFT:
-            return shift(session, v1, v2.getLong(), true);
+            return shift(v1, v2.getLong(), true);
         case URSHIFT:
-            return shift(session, v1, -v2.getLong(), true);
+            return shift(v1, -v2.getLong(), true);
         case ROTATELEFT:
-            return rotate(session, v1, v2.getLong(), false);
+            return rotate(v1, v2.getLong(), false);
         case ROTATERIGHT:
-            return rotate(session, v1, v2.getLong(), true);
+            return rotate(v1, v2.getLong(), true);
         }
         return getBitwise(function, type, v1, v2);
     }
 
-    private static ValueBoolean bitGet(SessionLocal session, Value v1, Value v2) {
+    private static ValueBoolean bitGet(Value v1, Value v2) {
         long offset = v2.getLong();
         boolean b;
         if (offset >= 0L) {
@@ -176,7 +177,7 @@ public final class BitFunction extends Function1_2 {
         return ValueBoolean.get(b);
     }
 
-    private static ValueBigint bitCount(SessionLocal session, Value v1) {
+    private static ValueBigint bitCount(Value v1) {
         long c;
         switch (v1.getValueType()) {
         case Value.BINARY:
@@ -184,11 +185,11 @@ public final class BitFunction extends Function1_2 {
             byte[] bytes = v1.getBytesNoCopy();
             int l = bytes.length;
             c = 0L;
-            int blocks = l >>> 3;
-            for (int i = 0; i < blocks; i++) {
+            int i = 0;
+            for (int bound = l & 0xfffffff8; i < bound; i += 8) {
                 c += Long.bitCount(Bits.readLong(bytes, i));
             }
-            for (int i = blocks << 3; i < l; i++) {
+            for (; i < l; i++) {
                 c += Integer.bitCount(bytes[i] & 0xff);
             }
             break;
@@ -211,7 +212,7 @@ public final class BitFunction extends Function1_2 {
         return ValueBigint.get(c);
     }
 
-    private static Value shift(SessionLocal session, Value v1, long offset, boolean unsigned) {
+    private static Value shift(Value v1, long offset, boolean unsigned) {
         if (offset == 0L) {
             return v1;
         }
@@ -353,7 +354,7 @@ public final class BitFunction extends Function1_2 {
         }
     }
 
-    private static Value rotate(SessionLocal session, Value v1, long offset, boolean right) {
+    private static Value rotate(Value v1, long offset, boolean right) {
         int vt = v1.getValueType();
         switch (vt) {
         case Value.BINARY:
@@ -654,8 +655,11 @@ public final class BitFunction extends Function1_2 {
             default:
                 return this;
             }
-            return new Aggregate(t, new Expression[] { l.getSubexpression(0) }, l.getSelect(), l.isDistinct())
-                    .optimize(session);
+            Aggregate aggregate = new Aggregate(t, new Expression[] { l.getSubexpression(0) }, l.getSelect(),
+                    l.isDistinct());
+            aggregate.setFilterCondition(l.getFilterCondition());
+            aggregate.setOverCondition(l.getOverCondition());
+            return aggregate.optimize(session);
         }
         return this;
     }
@@ -713,7 +717,7 @@ public final class BitFunction extends Function1_2 {
         case Value.BIGINT:
             return t;
         }
-        throw DbException.getInvalidValueException("bit function parameter", t.getTraceSQL());
+        throw Store.getInvalidExpressionTypeException("bit function argument", arg);
     }
 
     @Override

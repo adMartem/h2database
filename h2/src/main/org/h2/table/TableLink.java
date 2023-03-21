@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -24,8 +24,10 @@ import org.h2.index.Index;
 import org.h2.index.IndexType;
 import org.h2.index.LinkedIndex;
 import org.h2.jdbc.JdbcConnection;
+import org.h2.jdbc.JdbcResultSet;
 import org.h2.message.DbException;
 import org.h2.result.LocalResult;
+import org.h2.result.ResultInterface;
 import org.h2.result.Row;
 import org.h2.schema.Schema;
 import org.h2.util.JdbcUtils;
@@ -60,9 +62,10 @@ public class TableLink extends Table {
     private boolean storesMixedCase;
     private boolean storesMixedCaseQuoted;
     private boolean supportsMixedCaseIdentifiers;
+    private String identifierQuoteString;
     private boolean globalTemporary;
     private boolean readOnly;
-    private boolean targetsMySql;
+    private final boolean targetsMySql;
     private int fetchSize = 0;
     private boolean autocommit =true;
 
@@ -123,6 +126,7 @@ public class TableLink extends Table {
         storesMixedCase = meta.storesMixedCaseIdentifiers();
         storesMixedCaseQuoted = meta.storesMixedCaseQuotedIdentifiers();
         supportsMixedCaseIdentifiers = meta.supportsMixedCaseIdentifiers();
+        identifierQuoteString = meta.getIdentifierQuoteString();
         ArrayList<Column> columnList = Utils.newSmallArrayList();
         HashMap<String, Column> columnMap = new HashMap<>();
         String schema = null;
@@ -177,10 +181,20 @@ public class TableLink extends Table {
 
         try (Statement stat = conn.getConnection().createStatement();
                 ResultSet rs = stat.executeQuery("SELECT * FROM " + qualifiedTableName + " T WHERE 1=0")) {
-            if (columnList.isEmpty()) {
+            if (rs instanceof JdbcResultSet) {
+                ResultInterface result = ((JdbcResultSet) rs).getResult();
+                columnList.clear();
+                columnMap.clear();
+                for (int i = 0, l = result.getVisibleColumnCount(); i < l;) {
+                    String n = result.getColumnName(i);
+                    Column col = new Column(n, result.getColumnType(i), this, ++i);
+                    columnList.add(col);
+                    columnMap.put(n, col);
+                }
+            } else if (columnList.isEmpty()) {
                 // alternative solution
                 ResultSetMetaData rsMeta = rs.getMetaData();
-                for (int i = 0; i < rsMeta.getColumnCount();) {
+                for (int i = 0, l = rsMeta.getColumnCount(); i < l;) {
                     String n = rsMeta.getColumnName(i + 1);
                     n = convertColumnName(n);
                     int sqlType = rsMeta.getColumnType(i + 1);
@@ -196,7 +210,7 @@ public class TableLink extends Table {
             }
         } catch (Exception e) {
             throw DbException.get(ErrorCode.TABLE_OR_VIEW_NOT_FOUND_1, e,
-                    originalTable + '(' + e.toString() + ')');
+                    originalTable + '(' + e + ')');
         }
         Column[] cols = columnList.toArray(new Column[0]);
         setColumns(cols);
@@ -456,8 +470,8 @@ public class TableLink extends Table {
 
     @Override
     public synchronized long getRowCount(SessionLocal session) {
-        //The foo alias is used to support the PostgreSQL syntax
-        String sql = "SELECT COUNT(*) FROM " + qualifiedTableName + " as foo";
+        //The T alias is used to support the PostgreSQL syntax
+        String sql = "SELECT COUNT(*) FROM " + qualifiedTableName + " T";
         try {
             PreparedStatement prep = execute(sql, null, false, session);
             ResultSet rs = prep.getResultSet();
@@ -671,7 +685,7 @@ public class TableLink extends Table {
     }
 
     @Override
-    public void convertUpdateRow(SessionLocal session, Row row) {
+    public void convertUpdateRow(SessionLocal session, Row row, boolean fromTrigger) {
         convertRow(session, row);
     }
 
@@ -692,7 +706,7 @@ public class TableLink extends Table {
     /**
      * Specify the number of rows fetched by the linked table command
      *
-     * @param fetchSize
+     * @param fetchSize to set
      */
     public void setFetchSize(int fetchSize) {
         this.fetchSize = fetchSize;
@@ -701,7 +715,7 @@ public class TableLink extends Table {
     /**
      * Specify if the autocommit mode is activated or not
      *
-     * @param mode
+     * @param mode to set
      */
     public void setAutoCommit(boolean mode) {
         this.autocommit= mode;
@@ -709,7 +723,7 @@ public class TableLink extends Table {
 
     /**
      * The autocommit mode
-     * @return
+     * @return true if autocommit is on
      */
     public boolean getAutocommit(){
         return autocommit;
@@ -719,10 +733,19 @@ public class TableLink extends Table {
      * The number of rows to fetch
      * default is 0
      *
-     * @return
+     * @return number of rows to fetch
      */
     public int getFetchSize() {
         return fetchSize;
+    }
+
+    /**
+     * Returns the identifier quote string or space.
+     *
+     * @return the identifier quote string or space
+     */
+    public String getIdentifierQuoteString() {
+        return identifierQuoteString;
     }
 
 }

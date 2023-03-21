@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -66,7 +66,7 @@ public class CreateLinkedTable extends SchemaCommand {
     /**
      * Specify the number of rows fetched by the linked table command
      *
-     * @param fetchSize
+     * @param fetchSize to set
      */
     public void setFetchSize(int fetchSize) {
         this.fetchSize = fetchSize;
@@ -75,7 +75,7 @@ public class CreateLinkedTable extends SchemaCommand {
     /**
      * Specify if the autocommit mode is activated or not
      *
-     * @param mode
+     * @param mode to set
      */
     public void setAutoCommit(boolean mode) {
         this.autocommit= mode;
@@ -84,7 +84,7 @@ public class CreateLinkedTable extends SchemaCommand {
     @Override
     public long update() {
         session.getUser().checkAdmin();
-        Database db = session.getDatabase();
+        Database db = getDatabase();
         if (getSchema().resolveTableOrView(session, tableName) != null) {
             if (ifNotExists) {
                 return 0;

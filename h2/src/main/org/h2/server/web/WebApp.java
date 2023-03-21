@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -31,6 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.h2.api.ErrorCode;
 import org.h2.bnf.Bnf;
@@ -382,7 +383,7 @@ public class WebApp {
                 if (query.endsWith("\n") || tQuery.endsWith(";")) {
                     list.add(0, "1#(Newline)#\n");
                 }
-                result = StringUtils.join(new StringBuilder(), list, "|").toString();
+                result = String.join("|", list);
             }
             session.put("autoCompleteList", result);
         } catch (Throwable e) {
@@ -394,6 +395,7 @@ public class WebApp {
     private String admin() {
         session.put("port", Integer.toString(server.getPort()));
         session.put("allowOthers", Boolean.toString(server.getAllowOthers()));
+        session.put("webExternalNames", server.getExternalNames());
         session.put("ssl", String.valueOf(server.getSSL()));
         session.put("sessions", server.getSessions());
         return "admin.jsp";
@@ -408,6 +410,9 @@ public class WebApp {
             boolean allowOthers = Utils.parseBoolean((String) attributes.get("allowOthers"), false, false);
             prop.setProperty("webAllowOthers", String.valueOf(allowOthers));
             server.setAllowOthers(allowOthers);
+            String externalNames = (String) attributes.get("webExternalNames");
+            prop.setProperty("webExternalNames", externalNames);
+            server.setExternalNames(externalNames);
             boolean ssl = Utils.parseBoolean((String) attributes.get("ssl"), false, false);
             prop.setProperty("webSSL", String.valueOf(ssl));
             server.setSSL(ssl);
@@ -675,11 +680,12 @@ public class WebApp {
             if (prep != null) {
                 prep.setString(1, schema.name);
             }
+            AtomicReference<PreparedStatement> prepRef = new AtomicReference<>(prep);
             if (schema.isSystem) {
                 Arrays.sort(tables, SYSTEM_SCHEMA_COMPARATOR);
                 for (DbTableOrView table : tables) {
                     treeIndex = addTableOrView(schema, mainSchema, builder, treeIndex, meta, false, indentation,
-                            isOracle, notManyTables, table, table.isView(), prep, indentNode);
+                            isOracle, notManyTables, table, table.isView(), prepRef, indentNode);
                 }
             } else {
                 for (DbTableOrView table : tables) {
@@ -694,7 +700,7 @@ public class WebApp {
                         continue;
                     }
                     treeIndex = addTableOrView(schema, mainSchema, builder, treeIndex, meta, showColumns, indentation,
-                            isOracle, notManyTables, table, true, prep, indentNode);
+                            isOracle, notManyTables, table, true, prepRef, indentNode);
                 }
             }
         }
@@ -715,7 +721,8 @@ public class WebApp {
 
     private static int addTableOrView(DbSchema schema, boolean mainSchema, StringBuilder builder, int treeIndex,
             DatabaseMetaData meta, boolean showColumns, String indentation, boolean isOracle, boolean notManyTables,
-            DbTableOrView table, boolean isView, PreparedStatement prep, String indentNode) throws SQLException {
+            DbTableOrView table, boolean isView, AtomicReference<PreparedStatement> prepRef, String indentNode)
+                    throws SQLException {
         int tableId = treeIndex;
         String tab = table.getQuotedName();
         if (!mainSchema) {
@@ -731,6 +738,7 @@ public class WebApp {
             StringBuilder columnsBuilder = new StringBuilder();
             treeIndex = addColumns(mainSchema, table, builder, treeIndex, notManyTables, columnsBuilder);
             if (isView) {
+                PreparedStatement prep = prepRef.get();
                 if (prep != null) {
                     prep.setString(2, table.getName());
                     try (ResultSet rs = prep.executeQuery()) {
@@ -742,6 +750,8 @@ public class WebApp {
                                 treeIndex++;
                             }
                         }
+                    } catch (SQLException e) {
+                        prepRef.set(null);
                     }
                 }
             } else if (!isOracle && notManyTables) {

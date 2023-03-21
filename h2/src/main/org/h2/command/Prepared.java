@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -37,6 +37,11 @@ public abstract class Prepared {
     protected String sqlStatement;
 
     /**
+     * The SQL tokens.
+     */
+    protected ArrayList<Token> sqlTokens;
+
+    /**
      * Whether to create a new object (for indexes).
      */
     protected boolean create = true;
@@ -45,6 +50,8 @@ public abstract class Prepared {
      * The list of parameters.
      */
     protected ArrayList<Parameter> parameters;
+
+    private boolean withParamValues;
 
     /**
      * If the query should be prepared before each execution. This is set for
@@ -76,7 +83,7 @@ public abstract class Prepared {
      */
     public Prepared(SessionLocal session) {
         this.session = session;
-        modificationMetaId = session.getDatabase().getModificationMetaId();
+        modificationMetaId = getDatabase().getModificationMetaId();
     }
 
     /**
@@ -117,7 +124,7 @@ public abstract class Prepared {
      * @return true if it must
      */
     public boolean needRecompile() {
-        Database db = session.getDatabase();
+        Database db = getDatabase();
         if (db == null) {
             throw DbException.get(ErrorCode.CONNECTION_BROKEN_1, "database closed");
         }
@@ -163,6 +170,25 @@ public abstract class Prepared {
      */
     public ArrayList<Parameter> getParameters() {
         return parameters;
+    }
+
+    /**
+     * Returns whether values of parameters were specified in SQL.
+     *
+     * @return are values of parameters were specified in SQL
+     */
+    public boolean isWithParamValues() {
+        return withParamValues;
+    }
+
+    /**
+     * Sets whether values of parameters were specified in SQL.
+     *
+     * @param withParamValues
+     *            are values of parameters were specified in SQL
+     */
+    public void setWithParamValues(boolean withParamValues) {
+        this.withParamValues = withParamValues;
     }
 
     /**
@@ -234,9 +260,11 @@ public abstract class Prepared {
      * Set the SQL statement.
      *
      * @param sql the SQL statement
+     * @param sqlTokens the SQL tokens
      */
-    public void setSQL(String sql) {
+    public final void setSQL(String sql, ArrayList<Token> sqlTokens) {
         this.sqlStatement = sql;
+        this.sqlTokens = sqlTokens;
     }
 
     /**
@@ -244,8 +272,17 @@ public abstract class Prepared {
      *
      * @return the SQL statement
      */
-    public String getSQL() {
+    public final String getSQL() {
         return sqlStatement;
+    }
+
+    /**
+     * Get the SQL tokens.
+     *
+     * @return the SQL tokens
+     */
+    public final ArrayList<Token> getSQLTokens() {
+        return sqlTokens;
     }
 
     /**
@@ -270,7 +307,7 @@ public abstract class Prepared {
     protected int getObjectId() {
         int id = persistedObjectId;
         if (id == 0) {
-            id = session.getDatabase().allocateObjectId();
+            id = getDatabase().allocateObjectId();
         } else if (id < 0) {
             throw DbException.getInternalError("Prepared.getObjectId() was called before");
         }
@@ -323,11 +360,11 @@ public abstract class Prepared {
     /**
      * Print information about the statement executed if info trace level is
      * enabled.
-     *
+     * @param database to update statistics
      * @param startTimeNanos when the statement was started
      * @param rowCount the query or update row count
      */
-    void trace(long startTimeNanos, long rowCount) {
+    void trace(Database database, long startTimeNanos, long rowCount) {
         if (session.getTrace().isInfoEnabled() && startTimeNanos > 0) {
             long deltaTimeNanos = System.nanoTime() - startTimeNanos;
             String params = Trace.formatParams(parameters);
@@ -335,9 +372,9 @@ public abstract class Prepared {
         }
         // startTime_nanos can be zero for the command that actually turns on
         // statistics
-        if (session.getDatabase().getQueryStatistics() && startTimeNanos != 0) {
+        if (database != null && database.getQueryStatistics() && startTimeNanos != 0) {
             long deltaTimeNanos = System.nanoTime() - startTimeNanos;
-            session.getDatabase().getQueryStatisticsData().update(toString(), deltaTimeNanos, rowCount);
+            database.getQueryStatisticsData().update(toString(), deltaTimeNanos, rowCount);
         }
     }
 
@@ -378,7 +415,7 @@ public abstract class Prepared {
      */
     private void setProgress() {
         if ((currentRowNumber & 127) == 0) {
-            session.getDatabase().setProgress(DatabaseEventListener.STATE_STATEMENT_PROGRESS, sqlStatement,
+            getDatabase().setProgress(DatabaseEventListener.STATE_STATEMENT_PROGRESS, sqlStatement,
                     currentRowNumber, 0L);
         }
     }
@@ -411,7 +448,7 @@ public abstract class Prepared {
      * @param values the values of the row
      * @return the exception
      */
-    protected DbException setRow(DbException e, long rowId, String values) {
+    protected final DbException setRow(DbException e, long rowId, String values) {
         StringBuilder buff = new StringBuilder();
         if (sqlStatement != null) {
             buff.append(sqlStatement);
@@ -444,7 +481,7 @@ public abstract class Prepared {
         this.cteCleanups = cteCleanups;
     }
 
-    public SessionLocal getSession() {
+    public final SessionLocal getSession() {
         return session;
     }
 
@@ -454,4 +491,8 @@ public abstract class Prepared {
      * @param dependencies collection of dependencies to populate
      */
     public void collectDependencies(HashSet<DbObject> dependencies) {}
+
+    protected final Database getDatabase() {
+        return session.getDatabase();
+    }
 }

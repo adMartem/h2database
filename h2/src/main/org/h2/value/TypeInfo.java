@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -609,6 +609,8 @@ public class TypeInfo extends ExtTypeInfo implements Typed {
         case Value.DOUBLE:
             precision = -1L;
             break;
+        case Value.GEOMETRY:
+            return getHigherGeometry(type1, type2);
         case Value.ARRAY:
             return getHigherArray(type1, type2, dimensions(type1), dimensions(type2));
         case Value.ROW:
@@ -621,6 +623,46 @@ public class TypeInfo extends ExtTypeInfo implements Typed {
                 precision, //
                 Math.max(type1.getScale(), type2.getScale()), //
                 dataType == t1 && ext1 != null ? ext1 : dataType == t2 ? type2.extTypeInfo : null);
+    }
+
+    private static TypeInfo getHigherGeometry(TypeInfo type1, TypeInfo type2) {
+        int t;
+        Integer srid;
+        ExtTypeInfo ext1 = type1.getExtTypeInfo(), ext2 = type2.getExtTypeInfo();
+        if (ext1 instanceof ExtTypeInfoGeometry) {
+            if (ext2 instanceof ExtTypeInfoGeometry) {
+                ExtTypeInfoGeometry g1 = (ExtTypeInfoGeometry) ext1, g2 = (ExtTypeInfoGeometry) ext2;
+                t = g1.getType();
+                srid = g1.getSrid();
+                int t2 = g2.getType();
+                Integer srid2 = g2.getSrid();
+                if (Objects.equals(srid, srid2)) {
+                    if (t == t2) {
+                        return type1;
+                    } else if (srid == null) {
+                        return TYPE_GEOMETRY;
+                    } else {
+                        t = 0;
+                    }
+                } else if (srid == null || srid2 == null) {
+                    if (t == 0 || t != t2) {
+                        return TYPE_GEOMETRY;
+                    } else {
+                        srid = null;
+                    }
+                } else {
+                    throw DbException.get(ErrorCode.TYPES_ARE_NOT_COMPARABLE_2, type1.getTraceSQL(),
+                            type2.getTraceSQL());
+                }
+            } else {
+                return type2.getValueType() == Value.GEOMETRY ? TypeInfo.TYPE_GEOMETRY : type1;
+            }
+        } else if (ext2 instanceof ExtTypeInfoGeometry) {
+            return type1.getValueType() == Value.GEOMETRY ? TypeInfo.TYPE_GEOMETRY : type2;
+        } else {
+            return TYPE_GEOMETRY;
+        }
+        return new TypeInfo(Value.GEOMETRY, -1L, -1, new ExtTypeInfoGeometry(t, srid));
     }
 
     private static int dimensions(TypeInfo type) {
@@ -1414,7 +1456,7 @@ public class TypeInfo extends ExtTypeInfo implements Typed {
         case Value.REAL:
             return getTypeInfo(Value.DECFLOAT, ValueReal.DECIMAL_PRECISION, 0, null);
         case Value.DOUBLE:
-            return getTypeInfo(Value.DECFLOAT, ValueReal.DECIMAL_PRECISION, 0, null);
+            return getTypeInfo(Value.DECFLOAT, ValueDouble.DECIMAL_PRECISION, 0, null);
         case Value.DECFLOAT:
             return this;
         default:
@@ -1465,7 +1507,9 @@ public class TypeInfo extends ExtTypeInfo implements Typed {
     }
 
     /**
-     * Returns the declared name of this data type.
+     * Returns the declared name of this data type with precision, scale,
+     * length, cardinality etc. parameters removed, excluding parameters of ENUM
+     * data type, GEOMETRY data type, ARRAY elements, and ROW fields.
      *
      * @return the declared name
      */
@@ -1479,6 +1523,14 @@ public class TypeInfo extends ExtTypeInfo implements Typed {
                 return "FLOAT";
             }
             break;
+        case Value.ENUM:
+        case Value.GEOMETRY:
+        case Value.ROW:
+            return getSQL(DEFAULT_SQL_FLAGS);
+        case Value.ARRAY:
+            TypeInfo typeInfo = (TypeInfo) extTypeInfo;
+            // Use full type names with parameters for elements
+            return typeInfo.getSQL(new StringBuilder(), DEFAULT_SQL_FLAGS).append(" ARRAY").toString();
         }
         return Value.getTypeName(valueType);
     }

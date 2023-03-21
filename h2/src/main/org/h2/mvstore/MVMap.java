@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -65,13 +65,6 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
     private boolean isVolatile;
     private final AtomicLong avgKeySize;
     private final AtomicLong avgValSize;
-
-    /**
-     * This designates the "last stored" version for a store which was
-     * just open for the first time.
-     */
-    static final long INITIAL_VERSION = -1;
-
 
     protected MVMap(Map<String, Object> config, DataType<K> keyType, DataType<V> valueType) {
         this((MVStore) config.get("store"), keyType, valueType,
@@ -480,7 +473,9 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
                         continue;
                     }
                 }
-                store.registerUnsavedMemory(rootPage.removeAllRecursive(version));
+                if (isPersistent()) {
+                    registerUnsavedMemory(rootPage.removeAllRecursive(version));
+                }
                 rootPage = emptyRootPage;
                 return rootReference;
             } finally {
@@ -488,6 +483,12 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
                     unlockRoot(rootPage);
                 }
             }
+        }
+    }
+
+    protected final void registerUnsavedMemory(int memory) {
+        if (isPersistent()) {
+            store.registerUnsavedMemory(memory);
         }
     }
 
@@ -545,6 +546,8 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
 
     /**
      * Check whether the two values are equal.
+     *
+     * @param <X> type of values to compare
      *
      * @param a the first value
      * @param b the second value
@@ -640,14 +643,14 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
         if (root.map != this) {
             // this can only happen on concurrent opening of existing map,
             // when second thread picks up some cached page already owned by
-            // the first map's instantiation (both instantiations share same id)
+            // the first map's instantiation (both maps share the same id)
             assert id == root.map.id;
             // since it is unknown which one will win the race,
             // let each map instance to have it's own copy
             root = root.copy(this, false);
         }
-        setInitialRoot(root, version);
-        setWriteVersion(store.getCurrentVersion());
+        setInitialRoot(root, version - 1);
+        setWriteVersion(version);
     }
 
     private Page<K,V> readOrCreateRootPage(long rootPos) {
@@ -802,7 +805,7 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
     }
 
     protected final boolean isPersistent() {
-        return store.getFileStore() != null && !isVolatile;
+        return store.isPersistent() && !isVolatile;
     }
 
     /**
@@ -1191,7 +1194,7 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
     private void copy(Page<K,V> source, Page<K,V> parent, int index) {
         Page<K,V> target = source.copy(this, true);
         if (parent == null) {
-            setInitialRoot(target, INITIAL_VERSION);
+            setInitialRoot(target, MVStore.INITIAL_VERSION);
         } else {
             parent.setChild(index, target);
         }
@@ -1206,10 +1209,7 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
             }
             target.setComplete();
         }
-        store.registerUnsavedMemory(target.getMemory());
-        if (store.isSaveNeeded()) {
-            store.commit();
-        }
+        store.registerUnsavedMemoryAndCommitIfNeeded(target.getMemory());
     }
 
     /**
@@ -1332,7 +1332,7 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
                     // should always be the case, except for spurious failure?
                     locked = preLocked || isPersistent();
                     if (isPersistent() && tip != null) {
-                        store.registerUnsavedMemory(unsavedMemoryHolder.value + tip.processRemovalInfo(version));
+                        registerUnsavedMemory(unsavedMemoryHolder.value + tip.processRemovalInfo(version));
                     }
                     assert rootReference.getAppendCounter() <= availabilityThreshold;
                     break;
@@ -1764,7 +1764,7 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
             unsavedMemoryHolder.value = 0;
             try {
                 CursorPos<K,V> pos = CursorPos.traverseDown(rootPage, key);
-                if(!locked && rootReference != getRoot()) {
+                if (!locked && rootReference != getRoot()) {
                     continue;
                 }
                 Page<K,V> p = pos.page;
@@ -1779,14 +1779,14 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
                         decisionMaker.reset();
                         continue;
                     case ABORT:
-                        if(!locked && rootReference != getRoot()) {
+                        if (!locked && rootReference != getRoot()) {
                             decisionMaker.reset();
                             continue;
                         }
                         return result;
                     case REMOVE: {
                         if (index < 0) {
-                            if(!locked && rootReference != getRoot()) {
+                            if (!locked && rootReference != getRoot()) {
                                 decisionMaker.reset();
                                 continue;
                             }
@@ -1868,7 +1868,9 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
                         continue;
                     }
                 }
-                store.registerUnsavedMemory(unsavedMemoryHolder.value + tip.processRemovalInfo(version));
+                if (isPersistent()) {
+                    registerUnsavedMemory(unsavedMemoryHolder.value + tip.processRemovalInfo(version));
+                }
                 return result;
             } finally {
                 if(locked) {

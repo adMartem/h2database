@@ -1,14 +1,14 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.table;
 
 import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.Types;
@@ -44,21 +44,18 @@ import org.h2.expression.ValueExpression;
 import org.h2.index.Index;
 import org.h2.index.MetaIndex;
 import org.h2.message.DbException;
-import org.h2.mvstore.FileStore;
-import org.h2.mvstore.MVStore;
-import org.h2.mvstore.db.Store;
 import org.h2.result.Row;
 import org.h2.result.SearchRow;
 import org.h2.result.SortOrder;
 import org.h2.schema.Constant;
 import org.h2.schema.Domain;
 import org.h2.schema.FunctionAlias;
+import org.h2.schema.FunctionAlias.JavaMethod;
 import org.h2.schema.Schema;
 import org.h2.schema.SchemaObject;
 import org.h2.schema.Sequence;
 import org.h2.schema.TriggerObject;
 import org.h2.schema.UserDefinedFunction;
-import org.h2.schema.FunctionAlias.JavaMethod;
 import org.h2.store.InDoubtTransaction;
 import org.h2.tools.Csv;
 import org.h2.util.DateTimeUtils;
@@ -898,7 +895,7 @@ public final class InformationSchemaTableLegacy extends MetaTable {
                             // GENERATION_EXPRESSION
                             isGenerated ? c.getDefaultSQL() : null,
                             // TYPE_NAME
-                            identifier(isInterval ? "INTERVAL" : getDataTypeName(typeInfo)),
+                            identifier(isInterval ? "INTERVAL" : typeInfo.getDeclaredTypeName()),
                             // NULLABLE
                             ValueInteger.get(c.isNullable()
                                     ? DatabaseMetaData.columnNullable : DatabaseMetaData.columnNoNulls),
@@ -1116,58 +1113,14 @@ public final class InformationSchemaTableLegacy extends MetaTable {
             for (Map.Entry<String, String> entry : database.getSettings().getSortedSettings()) {
                 add(session, rows, entry.getKey(), entry.getValue());
             }
-            Store store = database.getStore();
-            MVStore mvStore = store.getMvStore();
-            FileStore fs = mvStore.getFileStore();
-            if (fs != null) {
-                add(session, rows,
-                        "info.FILE_WRITE", Long.toString(fs.getWriteCount()));
-                add(session, rows,
-                        "info.FILE_WRITE_BYTES", Long.toString(fs.getWriteBytes()));
-                add(session, rows,
-                        "info.FILE_READ", Long.toString(fs.getReadCount()));
-                add(session, rows,
-                        "info.FILE_READ_BYTES", Long.toString(fs.getReadBytes()));
-                add(session, rows,
-                        "info.UPDATE_FAILURE_PERCENT",
-                        String.format(Locale.ENGLISH, "%.2f%%", 100 * mvStore.getUpdateFailureRatio()));
-                add(session, rows,
-                        "info.FILL_RATE", Integer.toString(mvStore.getFillRate()));
-                add(session, rows,
-                        "info.CHUNKS_FILL_RATE", Integer.toString(mvStore.getChunksFillRate()));
-                add(session, rows,
-                        "info.CHUNKS_FILL_RATE_RW", Integer.toString(mvStore.getRewritableChunksFillRate()));
-                try {
-                    add(session, rows,
-                            "info.FILE_SIZE", Long.toString(fs.getFile().size()));
-                } catch (IOException ignore) {/**/}
-                add(session, rows,
-                        "info.CHUNK_COUNT", Long.toString(mvStore.getChunkCount()));
-                add(session, rows,
-                        "info.PAGE_COUNT", Long.toString(mvStore.getPageCount()));
-                add(session, rows,
-                        "info.PAGE_COUNT_LIVE", Long.toString(mvStore.getLivePageCount()));
-                add(session, rows,
-                        "info.PAGE_SIZE", Integer.toString(mvStore.getPageSplitSize()));
-                add(session, rows,
-                        "info.CACHE_MAX_SIZE", Integer.toString(mvStore.getCacheSize()));
-                add(session, rows,
-                        "info.CACHE_SIZE", Integer.toString(mvStore.getCacheSizeUsed()));
-                add(session, rows,
-                        "info.CACHE_HIT_RATIO", Integer.toString(mvStore.getCacheHitRatio()));
-                add(session, rows, "info.TOC_CACHE_HIT_RATIO",
-                        Integer.toString(mvStore.getTocCacheHitRatio()));
-                add(session, rows,
-                        "info.LEAF_RATIO", Integer.toString(mvStore.getLeafRatio()));
-            }
+            database.getStore().getMvStore().populateInfo((name, value) -> add(session, rows, name, value));
             break;
         }
         case HELP: {
             String resource = "/org/h2/res/help.csv";
             try {
                 final byte[] data = Utils.getResource(resource);
-                final Reader reader = new InputStreamReader(
-                        new ByteArrayInputStream(data));
+                final Reader reader = new InputStreamReader(new ByteArrayInputStream(data), StandardCharsets.UTF_8);
                 final Csv csv = new Csv();
                 csv.setLineCommentCharacter('#');
                 final ResultSet rs = csv.read(reader, null);
@@ -1398,7 +1351,7 @@ public final class InformationSchemaTableLegacy extends MetaTable {
                                     // DATA_TYPE
                                     ValueInteger.get(DataType.convertTypeToSQLType(typeInfo)),
                                     // TYPE_NAME
-                                    getDataTypeName(typeInfo),
+                                    typeInfo.getDeclaredTypeName(),
                                     // COLUMN_COUNT
                                     ValueInteger.get(method.getParameterCount()),
                                     // RETURNS_RESULT
@@ -1484,7 +1437,7 @@ public final class InformationSchemaTableLegacy extends MetaTable {
                                         // DATA_TYPE
                                         ValueInteger.get(DataType.convertTypeToSQLType(typeInfo)),
                                         // TYPE_NAME
-                                        getDataTypeName(typeInfo),
+                                        typeInfo.getDeclaredTypeName(),
                                         // PRECISION
                                         ValueInteger.get(MathUtils.convertLongToInt(dt.defaultPrecision)),
                                         // SCALE
@@ -1530,7 +1483,7 @@ public final class InformationSchemaTableLegacy extends MetaTable {
                                         // DATA_TYPE
                                         ValueInteger.get(DataType.convertTypeToSQLType(columnTypeInfo)),
                                         // TYPE_NAME
-                                        getDataTypeName(columnTypeInfo),
+                                        columnTypeInfo.getDeclaredTypeName(),
                                         // PRECISION
                                         ValueInteger.get(MathUtils.convertLongToInt(dt.defaultPrecision)),
                                         // SCALE
@@ -1753,7 +1706,7 @@ public final class InformationSchemaTableLegacy extends MetaTable {
                     continue;
                 }
                 if (constraintType == Constraint.Type.CHECK) {
-                    checkExpression = ((ConstraintCheck) constraint).getExpression().getSQL(HasSQL.DEFAULT_SQL_FLAGS);
+                    checkExpression = constraint.getExpression().getSQL(HasSQL.DEFAULT_SQL_FLAGS);
                 } else if (constraintType == Constraint.Type.UNIQUE ||
                         constraintType == Constraint.Type.PRIMARY_KEY) {
                     indexColumns = ((ConstraintUnique) constraint).getColumns();
@@ -1853,7 +1806,7 @@ public final class InformationSchemaTableLegacy extends MetaTable {
                         // SCALE
                         ValueInteger.get(typeInfo.getScale()),
                         // TYPE_NAME
-                        getDataTypeName(typeInfo),
+                        typeInfo.getDeclaredTypeName(),
                         // PARENT_DOMAIN_CATALOG
                         parentDomain != null ? catalog : null,
                         // PARENT_DOMAIN_SCHEMA
@@ -2202,7 +2155,7 @@ public final class InformationSchemaTableLegacy extends MetaTable {
                 }
                 ConstraintUnique referenced;
                 if (constraintType == Constraint.Type.REFERENTIAL) {
-                    referenced = ((ConstraintReferential) constraint).getReferencedConstraint();
+                    referenced = constraint.getReferencedConstraint();
                 } else {
                     referenced = null;
                 }
@@ -2356,18 +2309,6 @@ public final class InformationSchemaTableLegacy extends MetaTable {
             throw DbException.getInternalError("type=" + type);
         }
         return rows;
-    }
-
-    private static String getDataTypeName(TypeInfo typeInfo) {
-        switch (typeInfo.getValueType()) {
-        case Value.ARRAY:
-            typeInfo = (TypeInfo) typeInfo.getExtTypeInfo();
-            // Use full type names with parameters for elements
-            return typeInfo.getSQL(new StringBuilder(), DEFAULT_SQL_FLAGS).append(" ARRAY").toString();
-        case Value.ROW:
-            return typeInfo.getSQL(DEFAULT_SQL_FLAGS);
-        }
-        return typeInfo.getDeclaredTypeName();
     }
 
     private static short getRefAction(ConstraintActionType action) {

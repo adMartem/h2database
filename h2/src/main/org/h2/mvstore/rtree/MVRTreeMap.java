@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -69,7 +69,7 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
         return new ContainsRTreeCursor<>(getRootPage(), x, keyType);
     }
 
-    private boolean contains(Page<Spatial,V> p, int index, Object key) {
+    private boolean contains(Page<Spatial,V> p, int index, Spatial key) {
         return keyType.contains(p.getKey(index), key);
     }
 
@@ -149,9 +149,7 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
                 children[1] = new Page.PageReference<>(split);
                 children[2] = Page.PageReference.empty();
                 p = Page.createNode(this, keys, children, totalCount, 0);
-                if(isPersistent()) {
-                    store.registerUnsavedMemory(p.getMemory());
-                }
+                registerUnsavedMemory(p.getMemory());
             }
 
             if (removedPages == null) {
@@ -169,7 +167,7 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
                                 unsavedMemory += page.removePage(version);
                             }
                         }
-                        store.registerUnsavedMemory(unsavedMemory);
+                        registerUnsavedMemory(unsavedMemory);
                     } finally {
                         unlockRoot(p);
                     }
@@ -234,7 +232,7 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
             // a new entry, we don't know where to add yet
             float min = Float.MAX_VALUE;
             for (int i = 0; i < p.getKeyCount(); i++) {
-                Object k = p.getKey(i);
+                Spatial k = p.getKey(i);
                 float areaIncrease = keyType.getAreaIncrease(k, key);
                 if (areaIncrease < min) {
                     index = i;
@@ -306,7 +304,7 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
 
     private Page<Spatial,V> splitLinear(Page<Spatial,V> p) {
         int keyCount = p.getKeyCount();
-        ArrayList<Object> keys = new ArrayList<>(keyCount);
+        ArrayList<Spatial> keys = new ArrayList<>(keyCount);
         for (int i = 0; i < keyCount; i++) {
             keys.add(p.getKey(i));
         }
@@ -321,10 +319,10 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
             extremes[1]--;
         }
         move(p, splitB, extremes[1]);
-        Object boundsA = keyType.createBoundingBox(splitA.getKey(0));
-        Object boundsB = keyType.createBoundingBox(splitB.getKey(0));
+        Spatial boundsA = keyType.createBoundingBox(splitA.getKey(0));
+        Spatial boundsB = keyType.createBoundingBox(splitB.getKey(0));
         while (p.getKeyCount() > 0) {
-            Object o = p.getKey(0);
+            Spatial o = p.getKey(0);
             float a = keyType.getAreaIncrease(boundsA, o);
             float b = keyType.getAreaIncrease(boundsB, o);
             if (a < b) {
@@ -348,12 +346,12 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
         int ia = 0, ib = 0;
         int keyCount = p.getKeyCount();
         for (int a = 0; a < keyCount; a++) {
-            Object objA = p.getKey(a);
+            Spatial objA = p.getKey(a);
             for (int b = 0; b < keyCount; b++) {
                 if (a == b) {
                     continue;
                 }
-                Object objB = p.getKey(b);
+                Spatial objB = p.getKey(b);
                 float area = keyType.getCombinedArea(objA, objB);
                 if (area > largest) {
                     largest = area;
@@ -367,14 +365,14 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
             ib--;
         }
         move(p, splitB, ib);
-        Object boundsA = keyType.createBoundingBox(splitA.getKey(0));
-        Object boundsB = keyType.createBoundingBox(splitB.getKey(0));
+        Spatial boundsA = keyType.createBoundingBox(splitA.getKey(0));
+        Spatial boundsB = keyType.createBoundingBox(splitB.getKey(0));
         while (p.getKeyCount() > 0) {
             float diff = 0, bestA = 0, bestB = 0;
             int best = 0;
             keyCount = p.getKeyCount();
             for (int i = 0; i < keyCount; i++) {
-                Object o = p.getKey(i);
+                Spatial o = p.getKey(i);
                 float incA = keyType.getAreaIncrease(boundsA, o);
                 float incB = keyType.getAreaIncrease(boundsB, o);
                 float d = Math.abs(incA - incB);
@@ -401,9 +399,7 @@ public final class MVRTreeMap<V> extends MVMap<Spatial, V> {
 
     private Page<Spatial,V> newPage(boolean leaf) {
         Page<Spatial,V> page = leaf ? createEmptyLeaf() : createEmptyNode();
-        if(isPersistent()) {
-            store.registerUnsavedMemory(page.getMemory());
-        }
+        registerUnsavedMemory(page.getMemory());
         return page;
     }
 

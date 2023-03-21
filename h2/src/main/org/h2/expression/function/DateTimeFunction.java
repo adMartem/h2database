@@ -1,10 +1,11 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.expression.function;
 
+import org.h2.mvstore.db.Store;
 import static org.h2.util.DateTimeUtils.MILLIS_PER_DAY;
 import static org.h2.util.DateTimeUtils.NANOS_PER_DAY;
 import static org.h2.util.DateTimeUtils.NANOS_PER_HOUR;
@@ -64,8 +65,13 @@ public final class DateTimeFunction extends Function1_2 {
      */
     public static final int DATEDIFF = DATEADD + 1;
 
+    /**
+     * LAST_DAY() (non-standard);
+     */
+    public static final int LAST_DAY = DATEDIFF + 1;
+
     private static final String[] NAMES = { //
-            "EXTRACT", "DATE_TRUNC", "DATEADD", "DATEDIFF" //
+            "EXTRACT", "DATE_TRUNC", "DATEADD", "DATEDIFF", "LAST_DAY" //
     };
 
     // Standard fields
@@ -358,6 +364,9 @@ public final class DateTimeFunction extends Function1_2 {
         case DATEDIFF:
             v1 = ValueBigint.get(datediff(session, field, v1, v2));
             break;
+        case LAST_DAY:
+            v1 = lastDay(session, v1);
+            break;
         default:
             throw DbException.getInternalError("function=" + function);
         }
@@ -373,7 +382,7 @@ public final class DateTimeFunction extends Function1_2 {
      * @param date
      *            the date value
      * @param field
-     *            the field type, see {@link Function} for constants
+     *            the field type
      * @return the value
      */
     private static int extractInteger(SessionLocal session, Value date, int field) {
@@ -956,6 +965,32 @@ public final class DateTimeFunction extends Function1_2 {
         return result;
     }
 
+    private static Value lastDay(SessionLocal session, Value v) {
+        long dateValue;
+        int valueType = v.getValueType();
+        switch (valueType) {
+        case Value.DATE:
+            dateValue = ((ValueDate) v).getDateValue();
+            break;
+        case Value.TIMESTAMP:
+            dateValue = ((ValueTimestamp) v).getDateValue();
+            break;
+        case Value.TIMESTAMP_TZ:
+            dateValue = ((ValueTimestampTimeZone) v).getDateValue();
+            break;
+        default:
+            dateValue = ((ValueTimestampTimeZone) DateTimeUtils.parseTimestamp(v.getString(), session, true))
+            .getDateValue();
+        }
+        int year = DateTimeUtils.yearFromDateValue(dateValue), month = DateTimeUtils.monthFromDateValue(dateValue);
+        int day = DateTimeUtils.getDaysInMonth(year, month);
+        long lastDay = DateTimeUtils.dateValue(year, month, day);
+        if (lastDay == dateValue && valueType == Value.DATE) {
+            return v;
+        }
+        return ValueDate.fromDateValue(lastDay);
+    }
+
     @Override
     public Expression optimize(SessionLocal session) {
         left = left.optimize(session);
@@ -973,7 +1008,7 @@ public final class DateTimeFunction extends Function1_2 {
             int valueType = type.getValueType();
             // TODO set scale when possible
             if (!DataType.isDateTimeType(valueType)) {
-                throw DbException.getInvalidValueException("DATE_TRUNC datetime argument", type.getTraceSQL());
+                throw Store.getInvalidExpressionTypeException("DATE_TRUNC datetime argument", left);
             } else if (session.getMode().getEnum() == ModeEnum.PostgreSQL && valueType == Value.DATE) {
                 type = TypeInfo.TYPE_TIMESTAMP_TZ;
             }
@@ -999,6 +1034,9 @@ public final class DateTimeFunction extends Function1_2 {
         case DATEDIFF:
             type = TypeInfo.TYPE_BIGINT;
             break;
+        case LAST_DAY:
+            type = TypeInfo.TYPE_DATE;
+            break;
         default:
             throw DbException.getInternalError("function=" + function);
         }
@@ -1010,21 +1048,26 @@ public final class DateTimeFunction extends Function1_2 {
 
     @Override
     public StringBuilder getUnenclosedSQL(StringBuilder builder, int sqlFlags) {
-        builder.append(getName()).append('(').append(getFieldName(field));
-        switch (function) {
-        case EXTRACT:
-            left.getUnenclosedSQL(builder.append(" FROM "), sqlFlags);
-            break;
-        case DATE_TRUNC:
-            left.getUnenclosedSQL(builder.append(", "), sqlFlags);
-            break;
-        case DATEADD:
-        case DATEDIFF:
-            left.getUnenclosedSQL(builder.append(", "), sqlFlags).append(", ");
-            right.getUnenclosedSQL(builder, sqlFlags);
-            break;
-        default:
-            throw DbException.getInternalError("function=" + function);
+        builder.append(getName()).append('(');
+        if (function == LAST_DAY) {
+            left.getUnenclosedSQL(builder, sqlFlags);
+        } else {
+            builder.append(getFieldName(field));
+            switch (function) {
+            case EXTRACT:
+                left.getUnenclosedSQL(builder.append(" FROM "), sqlFlags);
+                break;
+            case DATE_TRUNC:
+                left.getUnenclosedSQL(builder.append(", "), sqlFlags);
+                break;
+            case DATEADD:
+            case DATEDIFF:
+                left.getUnenclosedSQL(builder.append(", "), sqlFlags).append(", ");
+                right.getUnenclosedSQL(builder, sqlFlags);
+                break;
+            default:
+                throw DbException.getInternalError("function=" + function);
+            }
         }
         return builder.append(')');
     }

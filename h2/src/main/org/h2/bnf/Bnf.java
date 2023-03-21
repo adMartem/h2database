@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -9,6 +9,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.nio.charset.StandardCharsets;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -45,12 +46,14 @@ public class Bnf {
      *
      * @param csv if not specified, the help.csv is used
      * @return a new instance
+     * @throws SQLException on failure
+     * @throws IOException on failure
      */
     public static Bnf getInstance(Reader csv) throws SQLException, IOException {
         Bnf bnf = new Bnf();
         if (csv == null) {
             byte[] data = Utils.getResource("/org/h2/res/help.csv");
-            csv = new InputStreamReader(new ByteArrayInputStream(data));
+            csv = new InputStreamReader(new ByteArrayInputStream(data), StandardCharsets.UTF_8);
         }
         bnf.parse(csv);
         return bnf;
@@ -166,7 +169,8 @@ public class Bnf {
      */
     public static String getRuleMapKey(String token) {
         StringBuilder buff = new StringBuilder();
-        for (char ch : token.toCharArray()) {
+        for (int i = 0, l = token.length(); i < l; i++) {
+            char ch = token.charAt(i);
             if (Character.isUpperCase(ch)) {
                 buff.append('_').append(Character.toLowerCase(ch));
             } else {

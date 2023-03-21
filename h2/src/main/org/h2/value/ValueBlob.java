@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -62,7 +62,7 @@ public final class ValueBlob extends ValueLob {
             if (length >= 0 && length < remaining) {
                 remaining = length;
             }
-            int len = LobDataFile.getBufferSize(handler, remaining);
+            int len = ValueLob.getBufferSize(handler, remaining);
             byte[] buff;
             if (len >= Integer.MAX_VALUE) {
                 buff = IOUtils.readBytesAndClose(in, -1);
@@ -85,7 +85,7 @@ public final class ValueBlob extends ValueLob {
      */
     private static ValueBlob createTemporary(DataHandler handler, byte[] buff, int len, InputStream in, long remaining)
             throws IOException {
-        String fileName = LobDataFile.createTempLobFileName(handler);
+        String fileName = ValueLob.createTempLobFileName(handler);
         FileStore tempFile = handler.openFile(fileName, "rw", false);
         tempFile.autoDelete();
         long tmpPrecision = 0;
@@ -97,7 +97,7 @@ public final class ValueBlob extends ValueLob {
                 if (remaining <= 0) {
                     break;
                 }
-                len = LobDataFile.getBufferSize(handler, remaining);
+                len = ValueLob.getBufferSize(handler, remaining);
                 len = IOUtils.readFully(in, buff, len);
                 if (len <= 0) {
                     break;
@@ -126,7 +126,7 @@ public final class ValueBlob extends ValueLob {
             return readString((int) p);
         }
         // 1 Java character may be encoded with up to 3 bytes
-        if (octetLength > Constants.MAX_STRING_LENGTH * 3) {
+        if (octetLength > Constants.MAX_STRING_LENGTH * 3L) {
             throw getStringTooLong(charLength());
         }
         String s;
@@ -236,9 +236,7 @@ public final class ValueBlob extends ValueLob {
         if ((sqlFlags & REPLACE_LOBS_FOR_TRACE) != 0
                 && (!(lobData instanceof LobDataInMemory) || octetLength > SysProperties.MAX_TRACE_DATA_LENGTH)) {
             builder.append("CAST(REPEAT(CHAR(0), ").append(octetLength).append(") AS BINARY VARYING");
-            LobDataDatabase lobDb = (LobDataDatabase) lobData;
-            builder.append(" /* table: ").append(lobDb.getTableId()).append(" id: ").append(lobDb.getLobId())
-                    .append(" */)");
+            formatLobDataComment(builder);
         } else {
             if ((sqlFlags & (REPLACE_LOBS_FOR_TRACE | NO_CASTS)) == 0) {
                 builder.append("CAST(X'");

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -26,9 +26,10 @@ import org.h2.command.CommandInterface;
 import org.h2.command.Parser;
 import org.h2.command.Prepared;
 import org.h2.command.ddl.Analyze;
+import org.h2.command.query.Query;
 import org.h2.constraint.Constraint;
 import org.h2.index.Index;
-import org.h2.index.ViewIndex;
+import org.h2.index.QueryExpressionIndex;
 import org.h2.jdbc.JdbcConnection;
 import org.h2.jdbc.meta.DatabaseMeta;
 import org.h2.jdbc.meta.DatabaseMetaLocal;
@@ -41,7 +42,6 @@ import org.h2.mvstore.db.MVTable;
 import org.h2.mvstore.db.Store;
 import org.h2.mvstore.tx.Transaction;
 import org.h2.mvstore.tx.TransactionStore;
-import org.h2.result.ResultInterface;
 import org.h2.result.Row;
 import org.h2.schema.Schema;
 import org.h2.schema.Sequence;
@@ -55,6 +55,7 @@ import org.h2.util.NetworkConnectionInfo;
 import org.h2.util.SmallLRUCache;
 import org.h2.util.TimeZoneProvider;
 import org.h2.util.Utils;
+import org.h2.value.CompareMode;
 import org.h2.value.Value;
 import org.h2.value.ValueLob;
 import org.h2.value.ValueNull;
@@ -124,9 +125,22 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     private static final String SYSTEM_IDENTIFIER_PREFIX = "_";
     private static int nextSerialId;
 
+    /**
+     * Thread local session for comparison operations between different data types.
+     */
+    private static final ThreadLocal<Session> THREAD_LOCAL_SESSION = new ThreadLocal<>();
+
+    static Session getThreadLocalSession() {
+        Session session = THREAD_LOCAL_SESSION.get();
+        if (session == null) {
+            THREAD_LOCAL_SESSION.remove();
+        }
+        return session;
+    }
+
     private final int serialId = nextSerialId++;
-    private final Database database;
-    private final User user;
+    private Database database;
+    private User user;
     private final int id;
 
     private NetworkConnectionInfo networkConnectionInfo;
@@ -154,7 +168,6 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     private HashMap<String, ValueLob> removeLobMap;
     private int systemIdentifier;
     private HashMap<String, Procedure> procedures;
-    private boolean undoLogEnabled = true;
     private boolean autoCommitAtTransactionEnd;
     private String currentTransactionName;
     private volatile long cancelAtNs;
@@ -162,7 +175,6 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     private Instant commandStartOrEnd;
     private ValueTimestampTimeZone currentTimestamp;
     private HashMap<String, Value> variables;
-    private HashSet<ResultInterface> temporaryResults;
     private int queryTimeout;
     private boolean commitOrRollbackDisabled;
     private Table waitForLock;
@@ -173,9 +185,8 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     private SmallLRUCache<String, Command> queryCache;
     private long modificationMetaID = -1;
     private int createViewLevel;
-    private volatile SmallLRUCache<Object, ViewIndex> viewIndexCache;
-    private HashMap<Object, ViewIndex> subQueryIndexCache;
-    private boolean forceJoinOrder;
+    private volatile SmallLRUCache<Object, QueryExpressionIndex> viewIndexCache;
+    private HashMap<Object, QueryExpressionIndex> derivedTableIndexCache;
     private boolean lazyQueryExecution;
 
     private BitSet nonKeywords;
@@ -268,14 +279,6 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         return lazyQueryExecution;
     }
 
-    public void setForceJoinOrder(boolean forceJoinOrder) {
-        this.forceJoinOrder = forceJoinOrder;
-    }
-
-    public boolean isForceJoinOrder() {
-        return forceJoinOrder;
-    }
-
     /**
      * This method is called before and after parsing of view definition and may
      * be called recursively.
@@ -305,7 +308,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     private void initVariables() {
         if (variables == null) {
-            variables = database.newStringMap();
+            variables = newStringsMap();
         }
     }
 
@@ -324,7 +327,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         } else {
             if (value instanceof ValueLob) {
                 // link LOB values, to make sure we have our own object
-                value = ((ValueLob) value).copy(database, LobStorageFrontend.TABLE_ID_SESSION_VARIABLE);
+                value = ((ValueLob) value).copy(getDatabase(), LobStorageFrontend.TABLE_ID_SESSION_VARIABLE);
             }
             old = variables.put(name, value);
         }
@@ -388,7 +391,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public void addLocalTempTable(Table table) {
         if (localTempTables == null) {
-            localTempTables = database.newStringMap();
+            localTempTables = newStringsMap();
         }
         if (localTempTables.putIfAbsent(table.getName(), table) != null) {
             StringBuilder builder = new StringBuilder();
@@ -409,8 +412,11 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         if (localTempTables != null) {
             localTempTables.remove(table.getName());
         }
-        synchronized (database) {
-            table.removeChildrenAndResources(this);
+        Database db = database;
+        if (db != null) {
+            synchronized (db) {
+                table.removeChildrenAndResources(this);
+            }
         }
     }
 
@@ -443,7 +449,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public void addLocalTempTableIndex(Index index) {
         if (localTempTableIndexes == null) {
-            localTempTableIndexes = database.newStringMap();
+            localTempTableIndexes = newStringsMap();
         }
         if (localTempTableIndexes.putIfAbsent(index.getName(), index) != null) {
             throw DbException.get(ErrorCode.INDEX_ALREADY_EXISTS_1, index.getTraceSQL());
@@ -499,7 +505,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public void addLocalTempTableConstraint(Constraint constraint) {
         if (localTempTableConstraints == null) {
-            localTempTableConstraints = database.newStringMap();
+            localTempTableConstraints = newStringsMap();
         }
         String name = constraint.getName();
         if (localTempTableConstraints.putIfAbsent(name, constraint) != null) {
@@ -580,6 +586,21 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     }
 
     /**
+     * Parse a query and prepare its expressions. Rights and literals must be
+     * already checked.
+     *
+     * @param sql the SQL statement
+     * @return the prepared statement
+     */
+    public Query prepareQueryExpression(String sql) {
+        Parser parser = new Parser(this);
+        parser.setRightsChecked(true);
+        parser.setLiteralsChecked(true);
+        return parser.prepareQueryExpression(sql);
+    }
+
+
+    /**
      * Parse and prepare the given SQL statement.
      * This method also checks if the connection has been closed.
      *
@@ -595,9 +616,9 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         if (queryCacheSize > 0) {
             if (queryCache == null) {
                 queryCache = SmallLRUCache.newInstance(queryCacheSize);
-                modificationMetaID = database.getModificationMetaId();
+                modificationMetaID = getDatabase().getModificationMetaId();
             } else {
-                long newModificationMetaID = database.getModificationMetaId();
+                long newModificationMetaID = getDatabase().getModificationMetaId();
                 if (newModificationMetaID != modificationMetaID) {
                     queryCache.clear();
                     modificationMetaID = newModificationMetaID;
@@ -613,8 +634,8 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         try {
             command = parser.prepareCommand(sql);
         } finally {
-            // we can't reuse sub-query indexes, so just drop the whole cache
-            subQueryIndexCache = null;
+            // we can't reuse indexes of derived tables, so just drop the whole cache
+            derivedTableIndexCache = null;
         }
         if (queryCache != null) {
             if (command.isCacheable()) {
@@ -629,7 +650,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      * at the end of the current transaction.
      * @param id to be scheduled
      */
-    protected void scheduleDatabaseObjectIdForRelease(int id) {
+    void scheduleDatabaseObjectIdForRelease(int id) {
         if (idsToRelease == null) {
             idsToRelease = new BitSet();
         }
@@ -637,6 +658,9 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     }
 
     public Database getDatabase() {
+        if (database == null) {
+            throw DbException.get(ErrorCode.DATABASE_IS_CLOSED);
+        }
         return database;
     }
 
@@ -697,7 +721,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
                 Analyze.analyzeTable(this, table, rowCount, false);
             }
             // analyze can lock the meta
-            database.unlockMeta(this);
+            getDatabase().unlockMeta(this);
             // table analysis opens a new transaction(s),
             // so we need to commit afterwards whatever leftovers might be
             commit(true);
@@ -714,7 +738,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
             temporaryLobs.clear();
         }
         if (temporaryResultLobs != null && !temporaryResultLobs.isEmpty()) {
-            long keepYoungerThan = System.nanoTime() - database.getSettings().lobTimeout * 1_000_000L;
+            long keepYoungerThan = System.nanoTime() - getDatabase().getSettings().lobTimeout * 1_000_000L;
             while (!temporaryResultLobs.isEmpty()) {
                 TimeoutValue tv = temporaryResultLobs.getFirst();
                 if (onTimeout && tv.created - keepYoungerThan >= 0) {
@@ -734,7 +758,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         }
         currentTransactionName = null;
         currentTimestamp = null;
-        database.throwLastBackgroundException();
+        getDatabase().throwLastBackgroundException();
     }
 
     private void endTransaction() {
@@ -746,11 +770,11 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         }
         unlockAll();
         if (idsToRelease != null) {
-            database.releaseDatabaseObjectIds(idsToRelease);
+            getDatabase().releaseDatabaseObjectIds(idsToRelease);
             idsToRelease = null;
         }
         if (hasTransaction() && !transaction.allowNonRepeatableRead()) {
-            snapshotDataModificationId = database.getNextModificationDataId();
+            snapshotDataModificationId = getDatabase().getNextModificationDataId();
         }
     }
 
@@ -857,15 +881,16 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         // so, we should prevent double-closure
         if (state.getAndSet(State.CLOSED) != State.CLOSED) {
             try {
+                if (queryCache != null) {
+                    queryCache.clear();
+                }
                 database.throwLastBackgroundException();
 
                 database.checkPowerOff();
 
                 // release any open table locks
                 if (hasPreparedTransaction()) {
-                    if (currentTransactionName != null) {
-                        removeLobMap = null;
-                    }
+                    removeLobMap = null;
                     endTransaction();
                 } else {
                     rollback();
@@ -880,6 +905,8 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
                 database.unlockMeta(this);
             } finally {
                 database.removeSession(this);
+                database = null;
+                user = null;
             }
         }
     }
@@ -977,10 +1004,11 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
             return trace;
         }
         String traceModuleName = "jdbc[" + id + "]";
-        if (isClosed()) {
+        Database db = database;
+        if (isClosed() || db == null) {
             return new TraceSystem(null).getTrace(traceModuleName);
         }
-        trace = database.getTraceSystem().getTrace(traceModuleName);
+        trace = db.getTraceSystem().getTrace(traceModuleName);
         return trace;
     }
 
@@ -995,7 +1023,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public Value getNextValueFor(Sequence sequence, Prepared prepared) {
         Value value;
-        Mode mode = database.getMode();
+        Mode mode = getMode();
         if (mode.nextValueReturnsDifferentValues || prepared == null) {
             value = sequence.getNext(this);
         } else {
@@ -1072,7 +1100,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public void addSavepoint(String name) {
         if (savepoints == null) {
-            savepoints = database.newStringMap();
+            savepoints = newStringsMap();
         }
         savepoints.put(name, setSavepoint());
     }
@@ -1100,7 +1128,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         if (hasPendingTransaction()) {
             // need to commit even if rollback is not possible (create/drop
             // table and so on)
-            database.prepareCommit(this, transactionName);
+            getDatabase().prepareCommit(this, transactionName);
         }
         currentTransactionName = transactionName;
     }
@@ -1129,7 +1157,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
                 rollback();
             }
         } else {
-            ArrayList<InDoubtTransaction> list = database.getInDoubtTransactions();
+            ArrayList<InDoubtTransaction> list = getDatabase().getInDoubtTransactions();
             int state = commit ? InDoubtTransaction.COMMIT : InDoubtTransaction.ROLLBACK;
             boolean found = false;
             for (InDoubtTransaction p: list) {
@@ -1199,7 +1227,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
                     cancelAtNs = Utils.currentNanoTimePlusMillis(queryTimeout);
                 }
             } else {
-                if (currentTimestamp != null && !database.getMode().dateTimeValueWithinTransaction) {
+                if (currentTimestamp != null && !getMode().dateTimeValueWithinTransaction) {
                     currentTimestamp = null;
                 }
                 if (nextValueFor != null) {
@@ -1283,7 +1311,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     @Override
     public void setCurrentSchemaName(String schemaName) {
-        Schema schema = database.getSchema(schemaName);
+        Schema schema = getDatabase().getSchema(schemaName);
         setCurrentSchema(schema);
     }
 
@@ -1306,7 +1334,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     @Override
     public DataHandler getDataHandler() {
-        return database;
+        return getDatabase();
     }
 
     /**
@@ -1356,7 +1384,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public void addProcedure(Procedure procedure) {
         if (procedures == null) {
-            procedures = database.newStringMap();
+            procedures = newStringsMap();
         }
         procedures.put(procedure.getName(), procedure);
     }
@@ -1405,14 +1433,6 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         return "#" + serialId + " (user: " + (user == null ? "<null>" : user.getName()) + ", " + state.get() + ")";
     }
 
-    public void setUndoLogEnabled(boolean b) {
-        this.undoLogEnabled = b;
-    }
-
-    public boolean isUndoLogEnabled() {
-        return undoLogEnabled;
-    }
-
     /**
      * Begin a transaction.
      */
@@ -1429,7 +1449,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         /*
          * This implementation needs to be lock-free.
          */
-        if (database.getLockMode() == Constants.LOCK_MODE_OFF || locks.isEmpty()) {
+        if (getDatabase().getLockMode() == Constants.LOCK_MODE_OFF || locks.isEmpty()) {
             return Collections.emptySet();
         }
         /*
@@ -1471,11 +1491,11 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
         transitionToState(State.RUNNING, true);
         // Even in exclusive mode, we have to let the LOB session proceed, or we
         // will get deadlocks.
-        if (database.getLobSession() == this) {
+        if (getDatabase().getLobSession() == this) {
             return;
         }
         while (isOpen()) {
-            SessionLocal exclusive = database.getExclusiveSession();
+            SessionLocal exclusive = getDatabase().getExclusiveSession();
             if (exclusive == null || exclusive == this) {
                 break;
             }
@@ -1492,61 +1512,33 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     }
 
     /**
-     * Get the view cache for this session. There are two caches: the subquery
-     * cache (which is only use for a single query, has no bounds, and is
+     * Get the view cache for this session. There are two caches: the derived
+     * table cache (which is only use for a single query, has no bounds, and is
      * cleared after use), and the cache for regular views.
      *
-     * @param subQuery true to get the subquery cache
-     * @return the view cache
+     * @param derivedTable
+     *            true to get the cache of derived tables
+     * @return the view cache or derived table cache
      */
-    public Map<Object, ViewIndex> getViewIndexCache(boolean subQuery) {
-        if (subQuery) {
-            // for sub-queries we don't need to use LRU because the cache should
-            // not grow too large for a single query (we drop the whole cache in
-            // the end of prepareLocal)
-            if (subQueryIndexCache == null) {
-                subQueryIndexCache = new HashMap<>();
+    public Map<Object, QueryExpressionIndex> getViewIndexCache(boolean derivedTable) {
+        if (derivedTable) {
+            // for derived tables we don't need to use LRU because the cache
+            // should not grow too large for a single query (we drop the whole
+            // cache in this cache is dropped at the end of prepareLocal)
+            if (derivedTableIndexCache == null) {
+                derivedTableIndexCache = new HashMap<>();
             }
-            return subQueryIndexCache;
+            return derivedTableIndexCache;
         }
-        SmallLRUCache<Object, ViewIndex> cache = viewIndexCache;
+        SmallLRUCache<Object, QueryExpressionIndex> cache = viewIndexCache;
         if (cache == null) {
             viewIndexCache = cache = SmallLRUCache.newInstance(Constants.VIEW_INDEX_CACHE_SIZE);
         }
         return cache;
     }
 
-    /**
-     * Remember the result set and close it as soon as the transaction is
-     * committed (if it needs to be closed). This is done to delete temporary
-     * files as soon as possible, and free object ids of temporary tables.
-     *
-     * @param result the temporary result set
-     */
-    public void addTemporaryResult(ResultInterface result) {
-        if (!result.needToClose()) {
-            return;
-        }
-        if (temporaryResults == null) {
-            temporaryResults = new HashSet<>();
-        }
-        if (temporaryResults.size() < 100) {
-            // reference at most 100 result sets to avoid memory problems
-            temporaryResults.add(result);
-        }
-    }
-
-    private void closeTemporaryResults() {
-        if (temporaryResults != null) {
-            for (ResultInterface result : temporaryResults) {
-                result.close();
-            }
-            temporaryResults = null;
-        }
-    }
-
     public void setQueryTimeout(int queryTimeout) {
-        int max = database.getSettings().maxQueryTimeout;
+        int max = getDatabase().getSettings().maxQueryTimeout;
         if (max != 0 && (max < queryTimeout || queryTimeout == 0)) {
             // the value must be at most max
             queryTimeout = max;
@@ -1608,10 +1600,10 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public Transaction getTransaction() {
         if (transaction == null) {
-            Store store = database.getStore();
+            Store store = getDatabase().getStore();
             if (store.getMvStore().isClosed()) {
-                Throwable backgroundException = database.getBackgroundException();
-                database.shutdownImmediately();
+                Throwable backgroundException = getDatabase().getBackgroundException();
+                getDatabase().shutdownImmediately();
                 throw DbException.get(ErrorCode.DATABASE_IS_CLOSED, backgroundException);
             }
             transaction = store.getTransactionStore().begin(this, this.lockTimeout, id, isolationLevel);
@@ -1642,7 +1634,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
                 case SNAPSHOT:
                 case SERIALIZABLE:
                     if (!transaction.hasStatementDependencies()) {
-                        for (Schema schema : database.getAllSchemasNoMeta()) {
+                        for (Schema schema : getDatabase().getAllSchemasNoMeta()) {
                             for (Table table : schema.getAllTablesAndViews(null)) {
                                 if (table instanceof MVTable) {
                                     addTableToDependencies((MVTable)table, maps);
@@ -1714,7 +1706,6 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
             transaction.markStatementEnd();
         }
         startStatement = -1;
-        closeTemporaryResults();
     }
 
     /**
@@ -1776,7 +1767,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
                             VersionedValue<Object> restoredValue) {
         // Here we are relying on the fact that map which backs table's primary index
         // has the same name as the table itself
-        Store store = database.getStore();
+        Store store = getDatabase().getStore();
         MVTable table = store.getTable(map.getName());
         if (table != null) {
             Row oldRow = existingValue == null ? null : (Row) existingValue.getCurrentValue();
@@ -1842,11 +1833,6 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     }
 
-    @Override
-    public boolean isSupportsGeneratedKeys() {
-        return true;
-    }
-
     /**
      * Returns the network connection information, or {@code null}.
      *
@@ -1872,12 +1858,12 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     @Override
     public Mode getMode() {
-        return database.getMode();
+        return getDatabase().getMode();
     }
 
     @Override
     public JavaObjectSerializer getJavaObjectSerializer() {
-        return database.getJavaObjectSerializer();
+        return getDatabase().getJavaObjectSerializer();
     }
 
     @Override
@@ -1913,7 +1899,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
     public StaticSettings getStaticSettings() {
         StaticSettings settings = staticSettings;
         if (settings == null) {
-            DbSettings dbSettings = database.getSettings();
+            DbSettings dbSettings = getDatabase().getSettings();
             staticSettings = settings = new StaticSettings(dbSettings.databaseToUpper, dbSettings.databaseToLower,
                     dbSettings.caseInsensitiveIdentifiers);
         }
@@ -1922,7 +1908,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     @Override
     public DynamicSettings getDynamicSettings() {
-        return new DynamicSettings(database.getMode(), timeZone);
+        return new DynamicSettings(getMode(), timeZone);
     }
 
     @Override
@@ -1960,7 +1946,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      */
     public boolean areEqual(Value a, Value b) {
         // can not use equals because ValueDecimal 0.0 is not equal to 0.00.
-        return a.compareTo(b, this, database.getCompareMode()) == 0;
+        return a.compareTo(b, this, getCompareMode()) == 0;
     }
 
     /**
@@ -1973,7 +1959,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      *         1 otherwise
      */
     public int compare(Value a, Value b) {
-        return a.compareTo(b, this, database.getCompareMode());
+        return a.compareTo(b, this, getCompareMode());
     }
 
     /**
@@ -1988,7 +1974,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      *         is not defined due to NULL comparison
      */
     public int compareWithNull(Value a, Value b, boolean forEquality) {
-        return a.compareWithNull(b, forEquality, this, database.getCompareMode());
+        return a.compareWithNull(b, forEquality, this, getCompareMode());
     }
 
     /**
@@ -2001,7 +1987,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      *         1 otherwise
      */
     public int compareTypeSafe(Value a, Value b) {
-        return a.compareTypeSafe(b, database.getCompareMode(), this);
+        return a.compareTypeSafe(b, getCompareMode(), this);
     }
 
     /**
@@ -2069,7 +2055,7 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
 
     @Override
     public boolean zeroBasedEnums() {
-        return database.zeroBasedEnums();
+        return getDatabase().zeroBasedEnums();
     }
 
     /**
@@ -2089,7 +2075,30 @@ public final class SessionLocal extends Session implements TransactionStore.Roll
      *         explicitly, {@code false} otherwise
      */
     public boolean isQuirksMode() {
-        return quirksMode || database.isStarting();
+        return quirksMode || getDatabase().isStarting();
     }
 
+    @Override
+    public Session setThreadLocalSession() {
+        Session oldSession = THREAD_LOCAL_SESSION.get();
+        THREAD_LOCAL_SESSION.set(this);
+        return oldSession;
+    }
+
+    @Override
+    public void resetThreadLocalSession(Session oldSession) {
+        if (oldSession == null) {
+            THREAD_LOCAL_SESSION.remove();
+        } else {
+            THREAD_LOCAL_SESSION.set(oldSession);
+        }
+    }
+
+    private CompareMode getCompareMode() {
+        return getDatabase().getCompareMode();
+    }
+
+    private <T> HashMap<String,T> newStringsMap() {
+        return getDatabase().newStringMap();
+    }
 }

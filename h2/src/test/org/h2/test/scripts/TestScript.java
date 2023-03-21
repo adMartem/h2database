@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -139,7 +139,7 @@ public class TestScript extends TestDb {
         testScript("altertable-fk.sql");
         testScript("default-and-on_update.sql");
 
-        for (String s : new String[] { "add_months", "compatibility", "group_by"}) {
+        for (String s : new String[] { "add_months", "compatibility", "group_by", "strict_and_legacy"}) {
             testScript("compatibility/" + s + ".sql");
         }
         for (String s : new String[] { "array", "bigint", "binary", "blob",
@@ -206,14 +206,14 @@ public class TestScript extends TestDb {
                 "file-read", "file-write", "greatest", "h2version", "identity",
                 "ifnull", "last-insert-id", "least", "link-schema", "lock-mode", "lock-timeout",
                 "memory-free", "memory-used", "nextval", "nullif", "nvl2",
-                "readonly", "rownum", "scope-identity", "session-id",
+                "readonly", "rownum", "session-id",
                 "table", "transaction-id", "trim_array", "truncate-value", "unnest" }) {
             testScript("functions/system/" + s + ".sql");
         }
         for (String s : new String[] { "current_date", "current_timestamp",
                 "current-time", "dateadd", "datediff", "dayname",
                 "day-of-month", "day-of-week", "day-of-year", "extract",
-                "formatdatetime", "hour", "minute", "month", "monthname",
+                "formatdatetime", "hour", "last_day", "minute", "month", "monthname",
                 "parsedatetime", "quarter", "second", "truncate", "week", "year", "date_trunc" }) {
             testScript("functions/timeanddate/" + s + ".sql");
         }

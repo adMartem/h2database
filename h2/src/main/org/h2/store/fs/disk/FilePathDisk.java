@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -9,13 +9,18 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URI;
 import java.net.URL;
 import java.nio.channels.FileChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.CopyOption;
 import java.nio.file.DirectoryNotEmptyException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileStore;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystemNotFoundException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
@@ -28,8 +33,10 @@ import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 import org.h2.api.ErrorCode;
@@ -54,23 +61,38 @@ public class FilePathDisk extends FilePath {
         return p;
     }
 
+
     @Override
     public long size() {
         if (name.startsWith(CLASSPATH_PREFIX)) {
+            String path = this.name.substring("classpath:".length());
+            if (!path.startsWith("/")) {
+                path = "/" + path;
+            }
+            URL url = this.getClass().getResource(path);
+            if (url == null) {
+                return 0L;
+            }
             try {
-                String fileName = name.substring(CLASSPATH_PREFIX.length());
-                // Force absolute resolution in Class.getResource
-                if (!fileName.startsWith("/")) {
-                    fileName = "/" + fileName;
+                URI uri = url.toURI();
+                if ("file".equals(url.getProtocol())) {
+                    return Files.size(Paths.get(uri));
                 }
-                URL resource = this.getClass().getResource(fileName);
-                if (resource != null) {
-                    return Files.size(Paths.get(resource.toURI()));
-                } else {
-                    return 0;
+                try {
+                    // If filesystem is opened, let it be closed by the code that opened it.
+                    // This way subsequent access to the FS does not fail
+                    FileSystems.getFileSystem(uri);
+                    return Files.size(Paths.get(uri));
+                } catch (FileSystemNotFoundException e) {
+                    Map<String, String> env = new HashMap<>();
+                    env.put("create", "true");
+                    // If filesystem was not opened, open it and close it after access to avoid resource leak.
+                    try (FileSystem fs = FileSystems.newFileSystem(uri, env)) {
+                        return Files.size(Paths.get(uri));
+                    }
                 }
-            } catch (Exception e) {
-                return 0;
+            } catch (Exception ex) {
+                return 0L;
             }
         }
         try {
@@ -201,6 +223,19 @@ public class FilePathDisk extends FilePath {
                 return;
             } catch (DirectoryNotEmptyException e) {
                 throw DbException.get(ErrorCode.FILE_DELETE_FAILED_1, e, name);
+            } catch (AccessDeniedException e) {
+                // On Windows file systems, delete a readonly file can cause AccessDeniedException,
+                // we should change readonly attribute to false and then delete file
+                try {
+                    FileStore fileStore = Files.getFileStore(file);
+                    if (!fileStore.supportsFileAttributeView(PosixFileAttributeView.class)
+                        && fileStore.supportsFileAttributeView(DosFileAttributeView.class)) {
+                        Files.setAttribute(file, "dos:readonly", false);
+                        Files.delete(file);
+                    }
+                } catch (IOException ioe) {
+                    cause = ioe;
+                }
             } catch (IOException e) {
                 cause = e;
             }
@@ -211,7 +246,7 @@ public class FilePathDisk extends FilePath {
 
     @Override
     public List<FilePath> newDirectoryStream() {
-        try (Stream<Path> files = Files.list(Paths.get(name).toRealPath())) {
+        try (Stream<Path> files = Files.list(toRealPath(Paths.get(name)))) {
             return files.collect(ArrayList::new, (t, u) -> t.add(getPath(u.toString())), ArrayList::addAll);
         } catch (NoSuchFileException e) {
             return Collections.emptyList();
@@ -267,19 +302,27 @@ public class FilePathDisk extends FilePath {
 
     @Override
     public FilePathDisk toRealPath() {
-        Path path = Paths.get(name);
+        return getPath(toRealPath(Paths.get(name)).toString());
+    }
+
+    private static Path toRealPath(Path path) {
         try {
-            return getPath(path.toRealPath().toString());
+            path = path.toRealPath();
         } catch (IOException e) {
             /*
              * File does not exist or isn't accessible, try to get the real path
              * of parent directory.
+             *
+             * toRealPath() can also throw AccessDeniedException on accessible
+             * remote directory on Windows if other directories on remote drive
+             * aren't accessible, but toAbsolutePath() should work.
              */
-            return getPath(toRealPath(path.toAbsolutePath().normalize()).toString());
+            path = parentToRealPath(path.toAbsolutePath().normalize());
         }
+        return path;
     }
 
-    private static Path toRealPath(Path path) {
+    private static Path parentToRealPath(Path path) {
         Path parent = path.getParent();
         if (parent == null) {
             return path;
@@ -287,7 +330,7 @@ public class FilePathDisk extends FilePath {
         try {
             parent = parent.toRealPath();
         } catch (IOException e) {
-            parent = toRealPath(parent);
+            parent = parentToRealPath(parent);
         }
         return parent.resolve(path.getFileName());
     }
@@ -301,6 +344,11 @@ public class FilePathDisk extends FilePath {
     @Override
     public boolean isDirectory() {
         return Files.isDirectory(Paths.get(name));
+    }
+
+    @Override
+    public boolean isRegularFile() {
+        return Files.isRegularFile(Paths.get(name));
     }
 
     @Override
@@ -432,7 +480,10 @@ public class FilePathDisk extends FilePath {
         Path file = Paths.get(name + '.').toAbsolutePath();
         String prefix = file.getFileName().toString();
         if (inTempDir) {
-            Files.createDirectories(Paths.get(System.getProperty("java.io.tmpdir", ".")));
+            final Path tempDir = Paths.get(System.getProperty("java.io.tmpdir", "."));
+            if (!Files.isDirectory(tempDir)) {
+                Files.createDirectories(tempDir);
+            }
             file = Files.createTempFile(prefix, suffix);
         } else {
             Path dir = file.getParent();

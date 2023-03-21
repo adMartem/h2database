@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -41,7 +41,6 @@ import org.h2.table.Column;
 import org.h2.table.ColumnResolver;
 import org.h2.table.Table;
 import org.h2.table.TableFilter;
-import org.h2.util.StringUtils;
 import org.h2.util.json.JsonConstructorUtils;
 import org.h2.value.CompareMode;
 import org.h2.value.DataType;
@@ -791,12 +790,12 @@ public class Aggregate extends AbstractAggregate implements ExpressionWithFlags 
         String separator = arguments.getEffectiveSeparator();
         return ValueVarchar
                 .get((arguments.getOnOverflowTruncate()
-                        ? getListaggTruncate(session, array, separator, arguments.getEffectiveFilter(),
+                        ? getListaggTruncate(array, separator, arguments.getEffectiveFilter(),
                                 arguments.isWithoutCount())
-                        : getListaggError(session, array, separator)).toString(), session);
+                        : getListaggError(array, separator)).toString(), session);
     }
 
-    private StringBuilder getListaggError(SessionLocal session, Value[] array, String separator) {
+    private StringBuilder getListaggError(Value[] array, String separator) {
         StringBuilder builder = new StringBuilder(getListaggItem(array[0]));
         for (int i = 1, count = array.length; i < count; i++) {
             builder.append(separator).append(getListaggItem(array[i]));
@@ -807,13 +806,15 @@ public class Aggregate extends AbstractAggregate implements ExpressionWithFlags 
         return builder;
     }
 
-    private StringBuilder getListaggTruncate(SessionLocal session, Value[] array, String separator, String filter,
+    private StringBuilder getListaggTruncate(Value[] array, String separator, String filter,
             boolean withoutCount) {
         int count = array.length;
         String[] strings = new String[count];
         String s = getListaggItem(array[0]);
         strings[0] = s;
-        StringBuilder builder = new StringBuilder(s);
+        final int estimatedLength = (int) Math.min(Integer.MAX_VALUE, s.length() * (long)count);
+        final StringBuilder builder = new StringBuilder(estimatedLength);
+        builder.append(s);
         loop: for (int i = 1; i < count; i++) {
             builder.append(separator).append(strings[i] = s = getListaggItem(array[i]));
             int length = builder.length();
@@ -1205,15 +1206,15 @@ public class Aggregate extends AbstractAggregate implements ExpressionWithFlags 
         }
         args[0].getUnenclosedSQL(builder, sqlFlags);
         ListaggArguments arguments = (ListaggArguments) extraArguments;
-        String s = arguments.getSeparator();
-        if (s != null) {
-            StringUtils.quoteStringSQL(builder.append(", "), s);
+        Expression e = arguments.getSeparator();
+        if (e != null) {
+            e.getUnenclosedSQL(builder.append(", "), sqlFlags);
         }
         if (arguments.getOnOverflowTruncate()) {
             builder.append(" ON OVERFLOW TRUNCATE ");
-            s = arguments.getFilter();
-            if (s != null) {
-                StringUtils.quoteStringSQL(builder, s).append(' ');
+            e = arguments.getFilter();
+            if (e != null) {
+                e.getUnenclosedSQL(builder, sqlFlags).append(' ');
             }
             builder.append(arguments.isWithoutCount() ? "WITHOUT" : "WITH").append(" COUNT");
         }

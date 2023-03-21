@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: Daniel Gredler
  */
@@ -76,10 +76,11 @@ public final class ToCharFunction extends FunctionN {
     /**
      * Emulates Oracle's TO_CHAR(number) function.
      *
-     * <p><table border="1">
-     * <th><td>Input</td>
-     * <td>Output</td>
-     * <td>Closest {@link DecimalFormat} Equivalent</td></th>
+     * <table border="1">
+     * <caption>TO_CHAR(number) function</caption>
+     * <tr><th>Input</th>
+     * <th>Output</th>
+     * <th>Closest {@link DecimalFormat} Equivalent</th></tr>
      * <tr><td>,</td>
      * <td>Grouping separator.</td>
      * <td>,</td></tr>
@@ -560,10 +561,11 @@ public final class ToCharFunction extends FunctionN {
     /**
      * Emulates Oracle's TO_CHAR(datetime) function.
      *
-     * <p><table border="1">
-     * <th><td>Input</td>
-     * <td>Output</td>
-     * <td>Closest {@link SimpleDateFormat} Equivalent</td></th>
+     * <table border="1">
+     * <caption>TO_CHAR(datetime) function</caption>
+     * <tr><th>Input</th>
+     * <th>Output</th>
+     * <th>Closest {@link SimpleDateFormat} Equivalent</th></tr>
      * <tr><td>- / , . ; : "text"</td>
      * <td>Reproduced verbatim.</td>
      * <td>'text'</td></tr>
@@ -1085,19 +1087,22 @@ public final class ToCharFunction extends FunctionN {
     @Override
     public Value getValue(SessionLocal session, Value v1, Value v2, Value v3) {
         switch (v1.getValueType()) {
-        case Value.TIME:
         case Value.DATE:
+        case Value.TIME:
+        case Value.TIME_TZ:
         case Value.TIMESTAMP:
         case Value.TIMESTAMP_TZ:
             v1 = ValueVarchar.get(toCharDateTime(session, v1, v2 == null ? null : v2.getString(),
                     v3 == null ? null : v3.getString()), session);
             break;
+        case Value.TINYINT:
         case Value.SMALLINT:
         case Value.INTEGER:
         case Value.BIGINT:
         case Value.NUMERIC:
-        case Value.DOUBLE:
         case Value.REAL:
+        case Value.DOUBLE:
+        case Value.DECFLOAT:
             v1 = ValueVarchar.get(toChar(v1.getBigDecimal(), v2 == null ? null : v2.getString(),
                     v3 == null ? null : v3.getString()), session);
             break;

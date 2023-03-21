@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -17,7 +17,7 @@ import org.h2.value.ValueLob;
  */
 public final class LobDataDatabase extends LobData {
 
-    private DataHandler handler;
+    private final DataHandler handler;
 
     /**
      * If the LOB is managed by the one the LobStorageBackend classes, these are
@@ -27,21 +27,12 @@ public final class LobDataDatabase extends LobData {
 
     private final long lobId;
 
-    /**
-     * Fix for recovery tool.
-     */
-    private boolean isRecoveryReference;
-
     public LobDataDatabase(DataHandler handler, int tableId, long lobId) {
         this.handler = handler;
         this.tableId = tableId;
         this.lobId = lobId;
     }
 
-    /**
-     * Remove the underlying resource, if any. For values that are kept fully in
-     * memory this method has no effect.
-     */
     @Override
     public void remove(ValueLob value) {
         if (handler != null) {
@@ -91,13 +82,4 @@ public final class LobDataDatabase extends LobData {
     public String toString() {
         return "lob-table: table: " + tableId + " id: " + lobId;
     }
-
-    public void setRecoveryReference(boolean isRecoveryReference) {
-        this.isRecoveryReference = isRecoveryReference;
-    }
-
-    public boolean isRecoveryReference() {
-        return isRecoveryReference;
-    }
-
 }

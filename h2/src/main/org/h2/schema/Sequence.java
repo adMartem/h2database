@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -11,7 +11,6 @@ import org.h2.engine.DbObject;
 import org.h2.engine.SessionLocal;
 import org.h2.message.DbException;
 import org.h2.message.Trace;
-import org.h2.table.Table;
 import org.h2.value.TypeInfo;
 import org.h2.value.Value;
 import org.h2.value.ValueBigint;
@@ -140,8 +139,8 @@ public final class Sequence extends SchemaObject {
      * Allows the base value, start value, min value, max value, increment and
      * cache size to be updated atomically, including atomic validation. Useful
      * because setting these attributes one after the other could otherwise
-     * result in an invalid sequence state (e.g. min value > max value, start
-     * value < min value, etc).
+     * result in an invalid sequence state (e.g. min value &gt; max value, start
+     * value &lt; min value, etc).
      * @param baseValue
      *            the base value ({@code null} if restart is not requested)
      * @param startValue
@@ -348,11 +347,6 @@ public final class Sequence extends SchemaObject {
         }
         StringBuilder builder = new StringBuilder("DROP SEQUENCE IF EXISTS ");
         return getSQL(builder, DEFAULT_SQL_FLAGS).toString();
-    }
-
-    @Override
-    public String getCreateSQLForCopy(Table table, String quotedName) {
-        throw DbException.getInternalError(toString());
     }
 
     @Override

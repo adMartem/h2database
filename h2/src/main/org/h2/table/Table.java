@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -60,6 +60,21 @@ public abstract class Table extends SchemaObject {
     public static final int TYPE_MEMORY = 1;
 
     /**
+     * Read lock.
+     */
+    public static final int READ_LOCK = 0;
+
+    /**
+     * Write lock.
+     */
+    public static final int WRITE_LOCK = 1;
+
+    /**
+     * Exclusive lock.
+     */
+    public static final int EXCLUSIVE_LOCK = 2;
+
+    /**
      * The columns of this table.
      */
     protected Column[] columns;
@@ -85,6 +100,10 @@ public abstract class Table extends SchemaObject {
      * views that depend on this table
      */
     private final CopyOnWriteArrayList<TableView> dependentViews = new CopyOnWriteArrayList<>();
+    /**
+     * materialized views that depend on this table
+     */
+    private final CopyOnWriteArrayList<MaterializedView> dependentMaterializedViews = new CopyOnWriteArrayList<>();
     private ArrayList<TableSynonym> synonyms;
     /** Is foreign key constraint checking enabled for this table. */
     private boolean checkForeignKeyConstraints = true;
@@ -120,12 +139,11 @@ public abstract class Table extends SchemaObject {
      * This method waits until the lock is granted.
      *
      * @param session the session
-     * @param exclusive true for write locks, false for read locks
-     * @param forceLockEvenInMvcc lock even in the MVCC mode
+     * @param lockType the type of lock
      * @return true if the table was already exclusively locked by this session.
      * @throws DbException if a lock timeout occurred
      */
-    public boolean lock(SessionLocal session, boolean exclusive, boolean forceLockEvenInMvcc) {
+    public boolean lock(SessionLocal session, int lockType) {
         return false;
     }
 
@@ -387,11 +405,6 @@ public abstract class Table extends SchemaObject {
         return null;
     }
 
-    @Override
-    public String getCreateSQLForCopy(Table table, String quotedName) {
-        throw DbException.getInternalError(toString());
-    }
-
     /**
      * Check whether the table (or view) contains no columns that prevent index
      * conditions to be used. For example, a view that contains the ROWNUM()
@@ -566,6 +579,10 @@ public abstract class Table extends SchemaObject {
         return dependentViews;
     }
 
+    public CopyOnWriteArrayList<MaterializedView> getDependentMaterializedViews() {
+        return dependentMaterializedViews;
+    }
+
     @Override
     public void removeChildrenAndResources(SessionLocal session) {
         while (!dependentViews.isEmpty()) {
@@ -679,20 +696,6 @@ public abstract class Table extends SchemaObject {
         return rowFactory.createRow(data, memory);
     }
 
-    /**
-     * Create a new row for this table.
-     *
-     * @param data the values
-     * @param memory the estimated memory usage in bytes
-     * @param key the key
-     * @return the created row
-     */
-    public Row createRow(Value[] data, int memory, long key) {
-        Row row = rowFactory.createRow(data, memory);
-        row.setKey(key);
-        return row;
-    }
-
     public Row getTemplateRow() {
         return createRow(new Value[getColumns().length], DefaultRow.MEMORY_CALCULATE);
     }
@@ -760,7 +763,7 @@ public abstract class Table extends SchemaObject {
      * Get the column with the given name.
      *
      * @param columnName the column name
-     * @param ifExists if (@code true) return {@code null} if column does not exist
+     * @param ifExists if {@code true} return {@code null} if column does not exist
      * @return the column
      * @throws DbException if the column was not found
      */
@@ -952,16 +955,20 @@ public abstract class Table extends SchemaObject {
      *
      * @param session the session
      * @param row the row
+     * @param fromTrigger {@code true} if row was modified by INSERT or UPDATE trigger
      */
-    public void convertUpdateRow(SessionLocal session, Row row) {
+    public void convertUpdateRow(SessionLocal session, Row row, boolean fromTrigger) {
         int length = columns.length, generated = 0;
         for (int i = 0; i < length; i++) {
             Value value = row.getValue(i);
             Column column = columns[i];
             if (column.isGenerated()) {
                 if (value != null) {
-                    throw DbException.get(ErrorCode.GENERATED_COLUMN_CANNOT_BE_ASSIGNED_1,
-                            column.getSQLWithTable(new StringBuilder(), TRACE_SQL_FLAGS).toString());
+                    if (!fromTrigger) {
+                        throw DbException.get(ErrorCode.GENERATED_COLUMN_CANNOT_BE_ASSIGNED_1,
+                                column.getSQLWithTable(new StringBuilder(), TRACE_SQL_FLAGS).toString());
+                    }
+                    row.setValue(i, null);
                 }
                 generated++;
                 continue;
@@ -1014,6 +1021,15 @@ public abstract class Table extends SchemaObject {
     }
 
     /**
+     * Remove the given view from the dependent views list.
+     *
+     * @param view the view to remove
+     */
+    public void removeDependentMaterializedView(MaterializedView view) {
+        dependentMaterializedViews.remove(view);
+    }
+
+    /**
      * Remove the given view from the list.
      *
      * @param synonym the synonym to remove
@@ -1056,6 +1072,15 @@ public abstract class Table extends SchemaObject {
      */
     public void addDependentView(TableView view) {
         dependentViews.add(view);
+    }
+
+    /**
+     * Add a materialized view to this table.
+     *
+     * @param view the view to add
+     */
+    public void addDependentMaterializedView(MaterializedView view) {
+        this.dependentMaterializedViews.add(view);
     }
 
     /**
@@ -1402,6 +1427,7 @@ public abstract class Table extends SchemaObject {
 
     /**
      * Views, function tables, links, etc. do not support locks
+     * @return true if table supports row-level locks
      */
     public boolean isRowLockable() {
         return false;

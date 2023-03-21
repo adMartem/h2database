@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -151,6 +151,7 @@ public abstract class JdbcLob extends TraceObject {
      * Returns the input stream.
      *
      * @return the input stream
+     * @throws SQLException on failure
      */
     InputStream getBinaryStream() throws SQLException {
         try {
@@ -166,6 +167,7 @@ public abstract class JdbcLob extends TraceObject {
      * Returns the reader.
      *
      * @return the reader
+     * @throws SQLException on failure
      */
     Reader getCharacterStream() throws SQLException {
         try {

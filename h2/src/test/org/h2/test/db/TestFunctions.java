@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -31,21 +31,28 @@ import java.text.DecimalFormatSymbols;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalQueries;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Currency;
 import java.util.Date;
+import java.util.Enumeration;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.TimeZone;
 import java.util.UUID;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 import org.h2.api.Aggregate;
 import org.h2.api.AggregateFunction;
@@ -75,6 +82,8 @@ import org.h2.value.ValueTimestampTimeZone;
 public class TestFunctions extends TestDb implements AggregateFunction {
 
     static int count;
+
+    private static HashSet<SimpleResultSet> RESULT_SETS = new HashSet<>();
 
     /**
      * Run just this test.
@@ -130,6 +139,7 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         testThatCurrentTimestampIsSane();
         testThatCurrentTimestampStaysTheSameWithinATransaction();
         testThatCurrentTimestampUpdatesOutsideATransaction();
+        testCompatibilityDateTime();
         testAnnotationProcessorsOutput();
         testSignal();
 
@@ -153,10 +163,27 @@ public class TestFunctions extends TestDb implements AggregateFunction {
     private void testFunctionTable() throws SQLException {
         Connection conn = getConnection("functions");
         Statement stat = conn.createStatement();
-        stat.execute("create alias simple_function_table for '" +
-                TestFunctions.class.getName() + ".simpleFunctionTable'");
-        stat.execute("select * from simple_function_table() " +
-                "where a>0 and b in ('x', 'y')");
+        synchronized (RESULT_SETS) {
+            try {
+                stat.execute("create alias simple_function_table for '" +
+                        TestFunctions.class.getName() + ".simpleFunctionTable'");
+                stat.execute("select * from simple_function_table() " +
+                        "where a>0 and b in ('x', 'y')");
+                for (SimpleResultSet rs : RESULT_SETS) {
+                    assertTrue(rs.isClosed());
+                }
+            } finally {
+                RESULT_SETS.clear();
+            }
+        }
+        stat.execute("create alias function_table_with_parameter for '" +
+                TestFunctions.class.getName() + ".functionTableWithParameter'");
+        PreparedStatement prep = conn.prepareStatement("call function_table_with_parameter(?)");
+        prep.setInt(1, 10);
+        ResultSet rs = prep.executeQuery();
+        assertTrue(rs.next());
+        assertEquals(10, rs.getInt(1));
+        assertEquals("X", rs.getString(2));
         conn.close();
     }
 
@@ -185,6 +212,23 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         result.addColumn("A", Types.INTEGER, 0, 0);
         result.addColumn("B", Types.CHAR, 0, 0);
         result.addRow(42, 'X');
+        result.setAutoClose(false);
+        RESULT_SETS.add(result);
+        return result;
+    }
+
+    /**
+     * This method is called via reflection from the database.
+     *
+     * @param conn the connection
+     * @param p the parameter
+     * @return a result set
+     */
+    public static ResultSet functionTableWithParameter(@SuppressWarnings("unused") Connection conn, int p) {
+        SimpleResultSet result = new SimpleResultSet();
+        result.addColumn("A", Types.INTEGER, 0, 0);
+        result.addColumn("B", Types.CHAR, 0, 0);
+        result.addRow(p, 'X');
         return result;
     }
 
@@ -576,6 +620,21 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         rs = stat.executeQuery("SELECT LENGTH(FILE_READ('classpath:" + fileName + "')) LEN");
         rs.next();
         int fileSize = rs.getInt(1);
+        assertTrue(fileSize > 0);
+        //test classpath resource from jar - grab a class file from a loaded jar in the classpath
+        String[] classPathItems = this.getClassPath().split(System.getProperty("path.separator"));
+        JarFile jarFile = new JarFile(Arrays.stream(classPathItems).filter(x -> x.endsWith(".jar")).findFirst().get());
+        Enumeration<JarEntry> e = jarFile.entries();
+        while (e.hasMoreElements()) {
+            JarEntry jarEntry = e.nextElement();
+            if (!jarEntry.isDirectory() && jarEntry.getName().endsWith(".class")) {
+                fileName = jarEntry.getName();
+                break;
+            }
+        }
+        rs = stat.executeQuery("SELECT LENGTH(FILE_READ('classpath:" + fileName + "')) LEN");
+        rs.next();
+        fileSize = rs.getInt(1);
         assertTrue(fileSize > 0);
         conn.close();
     }
@@ -1947,6 +2006,43 @@ public class TestFunctions extends TestDb implements AggregateFunction {
         assertTrue(second.after(first));
         conn.close();
     }
+
+    private void testCompatibilityDateTime() throws SQLException {
+        deleteDb("functions");
+        TimeZone tz = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("GMT+1"));
+            for (String mode : new String[] { "LEGACY", "ORACLE" }) {
+                Connection conn = getConnection("functions;MODE=" + mode);
+                conn.setAutoCommit(false);
+                Statement stat = conn.createStatement();
+                stat.execute("SET TIME ZONE '2:00'");
+                ResultSet rs = stat.executeQuery(
+                        "SELECT SYSDATE, SYSTIMESTAMP, SYSTIMESTAMP(0), SYSTIMESTAMP(9) FROM DUAL");
+                rs.next();
+                LocalDateTime ldt = rs.getObject(1, LocalDateTime.class);
+                OffsetDateTime odt = rs.getObject(2, OffsetDateTime.class);
+                OffsetDateTime odt0 = rs.getObject(3, OffsetDateTime.class);
+                OffsetDateTime odt9 = rs.getObject(4, OffsetDateTime.class);
+                assertEquals(3_600, odt.getOffset().getTotalSeconds());
+                assertEquals(3_600, odt9.getOffset().getTotalSeconds());
+                assertEquals(ldt, odt9.toLocalDateTime().withNano(0));
+                if (mode.equals("LEGACY")) {
+                    stat.execute("SET TIME ZONE '3:00'");
+                    rs = stat.executeQuery("SELECT SYSDATE, SYSTIMESTAMP, SYSTIMESTAMP(0), SYSTIMESTAMP(9) FROM DUAL");
+                    rs.next();
+                    assertEquals(ldt, rs.getObject(1, LocalDateTime.class));
+                    assertEquals(odt, rs.getObject(2, OffsetDateTime.class));
+                    assertEquals(odt0, rs.getObject(3, OffsetDateTime.class));
+                    assertEquals(odt9, rs.getObject(4, OffsetDateTime.class));
+                }
+                conn.close();
+            }
+        } finally {
+            TimeZone.setDefault(tz);
+        }
+    }
+
 
     private void testOverrideAlias() throws SQLException {
         deleteDb("functions");

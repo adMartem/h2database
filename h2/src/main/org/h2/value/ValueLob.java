@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0, and the
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0, and the
  * EPL 1.0 (https://h2database.com/html/license.html). Initial Developer: H2
  * Group
  */
@@ -10,17 +10,21 @@ import java.io.InputStream;
 import java.io.Reader;
 
 import org.h2.engine.Constants;
+import org.h2.engine.SysProperties;
 import org.h2.message.DbException;
 import org.h2.store.DataHandler;
 import org.h2.store.LobStorageFrontend;
 import org.h2.store.LobStorageInterface;
 import org.h2.store.RangeInputStream;
 import org.h2.store.RangeReader;
+import org.h2.store.fs.FileUtils;
 import org.h2.util.IOUtils;
+import org.h2.util.MathUtils;
 import org.h2.util.StringUtils;
 import org.h2.util.Utils;
 import org.h2.value.lob.LobData;
 import org.h2.value.lob.LobDataDatabase;
+import org.h2.value.lob.LobDataFetchOnDemand;
 import org.h2.value.lob.LobDataInMemory;
 
 /**
@@ -109,6 +113,42 @@ public abstract class ValueLob extends Value {
         this.lobData = lobData;
         this.octetLength = octetLength;
         this.charLength = charLength;
+    }
+
+    /**
+     * Create file name for temporary LOB storage
+     * @param handler to get path from
+     * @return full path and name of the created file
+     * @throws IOException if file creation fails
+     */
+    static String createTempLobFileName(DataHandler handler) throws IOException {
+        String path = handler.getDatabasePath();
+        if (path.isEmpty()) {
+            path = SysProperties.PREFIX_TEMP_FILE;
+        }
+        return FileUtils.createTempFile(path, Constants.SUFFIX_TEMP_FILE, true);
+    }
+
+    static int getBufferSize(DataHandler handler, long remaining) {
+        if (remaining < 0 || remaining > Integer.MAX_VALUE) {
+            remaining = Integer.MAX_VALUE;
+        }
+        int inplace = handler.getMaxLengthInplaceLob();
+        long m = Constants.IO_BUFFER_SIZE;
+        if (m < remaining && m <= inplace) {
+            // using "1L" to force long arithmetic because
+            // inplace could be Integer.MAX_VALUE
+            m = Math.min(remaining, inplace + 1L);
+            // the buffer size must be bigger than the inplace lob, otherwise we
+            // can't know if it must be stored in-place or not
+            m = MathUtils.roundUpLong(m, Constants.IO_BUFFER_SIZE);
+        }
+        m = Math.min(remaining, m);
+        m = MathUtils.convertLongToInt(m);
+        if (m < 0) {
+            m = Integer.MAX_VALUE;
+        }
+        return (int) m;
     }
 
     /**
@@ -253,6 +293,21 @@ public abstract class ValueLob extends Value {
             }
         }
         return this;
+    }
+
+    final void formatLobDataComment(StringBuilder builder) {
+        if (lobData instanceof LobDataDatabase) {
+            LobDataDatabase lobDb = (LobDataDatabase) lobData;
+            builder.append(" /* table: ").append(lobDb.getTableId()).append(" id: ").append(lobDb.getLobId())
+                    .append(" */)");
+        } else if (lobData instanceof LobDataFetchOnDemand) {
+            LobDataFetchOnDemand lobDemand = (LobDataFetchOnDemand) lobData;
+            builder.append(" /* table: ").append(lobDemand.getTableId()).append(" id: ")
+                    .append(lobDemand.getLobId()).append(" */)");
+        } else {
+            builder.append(" /* ").append(lobData.toString().replaceAll("\\*/", "\\\\*\\\\/"))
+                    .append(" */");
+        }
     }
 
 }

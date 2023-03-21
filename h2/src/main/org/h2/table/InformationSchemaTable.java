@@ -1,11 +1,10 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
 package org.h2.table;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashSet;
@@ -38,9 +37,6 @@ import org.h2.expression.ValueExpression;
 import org.h2.index.Index;
 import org.h2.index.MetaIndex;
 import org.h2.message.DbException;
-import org.h2.mvstore.FileStore;
-import org.h2.mvstore.MVStore;
-import org.h2.mvstore.db.Store;
 import org.h2.result.Row;
 import org.h2.result.SearchRow;
 import org.h2.result.SortOrder;
@@ -1758,7 +1754,7 @@ public final class InformationSchemaTable extends MetaTable {
             Constraint.Type constraintType, IndexColumn[] indexColumns, Table table, String tableName) {
         ConstraintUnique referenced;
         if (constraintType == Constraint.Type.REFERENTIAL) {
-            referenced = ((ConstraintReferential) constraint).getReferencedConstraint();
+            referenced = constraint.getReferencedConstraint();
         } else {
             referenced = null;
         }
@@ -1975,10 +1971,11 @@ public final class InformationSchemaTable extends MetaTable {
                         } else {
                             routineType = "FUNCTION";
                         }
+                        String javaClassName = alias.getJavaClassName();
                         routines(session, rows, catalog, mainSchemaName, collation, schemaName, name,
                                 name + '_' + (i + 1), routineType, admin ? alias.getSource() : null,
-                                alias.getJavaClassName() + '.' + alias.getJavaMethodName(), typeInfo,
-                                alias.isDeterministic(), alias.getComment());
+                                javaClassName != null ? javaClassName + '.' + alias.getJavaMethodName() : null,
+                                typeInfo, alias.isDeterministic(), alias.getComment());
                     }
                 } else {
                     routines(session, rows, catalog, mainSchemaName, collation, schemaName, name, name, "AGGREGATE",
@@ -2168,24 +2165,23 @@ public final class InformationSchemaTable extends MetaTable {
     }
 
     private void tables(SessionLocal session, Value indexFrom, Value indexTo, ArrayList<Row> rows, String catalog) {
-        boolean admin = session.getUser().isAdmin();
         for (Schema schema : database.getAllSchemas()) {
             for (Table table : schema.getAllTablesAndViews(session)) {
                 String tableName = table.getName();
                 if (checkIndex(session, tableName, indexFrom, indexTo)) {
-                    tables(session, rows, catalog, admin, table, tableName);
+                    tables(session, rows, catalog, table, tableName);
                 }
             }
         }
         for (Table table : session.getLocalTempTables()) {
             String tableName = table.getName();
             if (checkIndex(session, tableName, indexFrom, indexTo)) {
-                tables(session, rows, catalog, admin, table, tableName);
+                tables(session, rows, catalog, table, tableName);
             }
         }
     }
 
-    private void tables(SessionLocal session, ArrayList<Row> rows, String catalog, boolean admin, Table table,
+    private void tables(SessionLocal session, ArrayList<Row> rows, String catalog, Table table,
             String tableName) {
         if (hideTable(table, session)) {
             return;
@@ -2265,7 +2261,7 @@ public final class InformationSchemaTable extends MetaTable {
             enforced = true;
         } else {
             enforced = database.getReferentialIntegrity() && table.getCheckForeignKeyConstraints()
-                    && ((ConstraintReferential) constraint).getRefTable().getCheckForeignKeyConstraints();
+                    && constraint.getRefTable().getCheckForeignKeyConstraints();
         }
         add(session, rows,
                 // CONSTRAINT_CATALOG
@@ -2404,7 +2400,7 @@ public final class InformationSchemaTable extends MetaTable {
         String viewDefinition, status = "VALID";
         if (table instanceof TableView) {
             TableView view = (TableView) table;
-            viewDefinition = view.getQuery();
+            viewDefinition = view.getQuerySQL();
             if (view.isInvalid()) {
                 status = "INVALID";
             }
@@ -2681,15 +2677,13 @@ public final class InformationSchemaTable extends MetaTable {
     private void inDoubt(SessionLocal session, ArrayList<Row> rows) {
         if (session.getUser().isAdmin()) {
             ArrayList<InDoubtTransaction> prepared = database.getInDoubtTransactions();
-            if (prepared != null) {
-                for (InDoubtTransaction prep : prepared) {
-                    add(session, rows,
-                            // TRANSACTION_NAME
-                            prep.getTransactionName(),
-                            // TRANSACTION_STATE
-                            prep.getStateDescription()
-                    );
-                }
+            for (InDoubtTransaction prep : prepared) {
+                add(session, rows,
+                        // TRANSACTION_NAME
+                        prep.getTransactionName(),
+                        // TRANSACTION_STATE
+                        prep.getStateDescription()
+                );
             }
         }
     }
@@ -2969,50 +2963,7 @@ public final class InformationSchemaTable extends MetaTable {
         for (Map.Entry<String, String> entry : database.getSettings().getSortedSettings()) {
             add(session, rows, entry.getKey(), entry.getValue());
         }
-        Store store = database.getStore();
-        MVStore mvStore = store.getMvStore();
-        FileStore fs = mvStore.getFileStore();
-        if (fs != null) {
-            add(session, rows,
-                    "info.FILE_WRITE", Long.toString(fs.getWriteCount()));
-            add(session, rows,
-                    "info.FILE_WRITE_BYTES", Long.toString(fs.getWriteBytes()));
-            add(session, rows,
-                    "info.FILE_READ", Long.toString(fs.getReadCount()));
-            add(session, rows,
-                    "info.FILE_READ_BYTES", Long.toString(fs.getReadBytes()));
-            add(session, rows,
-                    "info.UPDATE_FAILURE_PERCENT",
-                    String.format(Locale.ENGLISH, "%.2f%%", 100 * mvStore.getUpdateFailureRatio()));
-            add(session, rows,
-                    "info.FILL_RATE", Integer.toString(mvStore.getFillRate()));
-            add(session, rows,
-                    "info.CHUNKS_FILL_RATE", Integer.toString(mvStore.getChunksFillRate()));
-            add(session, rows,
-                    "info.CHUNKS_FILL_RATE_RW", Integer.toString(mvStore.getRewritableChunksFillRate()));
-            try {
-                add(session, rows,
-                        "info.FILE_SIZE", Long.toString(fs.getFile().size()));
-            } catch (IOException ignore) {/**/}
-            add(session, rows,
-                    "info.CHUNK_COUNT", Long.toString(mvStore.getChunkCount()));
-            add(session, rows,
-                    "info.PAGE_COUNT", Long.toString(mvStore.getPageCount()));
-            add(session, rows,
-                    "info.PAGE_COUNT_LIVE", Long.toString(mvStore.getLivePageCount()));
-            add(session, rows,
-                    "info.PAGE_SIZE", Integer.toString(mvStore.getPageSplitSize()));
-            add(session, rows,
-                    "info.CACHE_MAX_SIZE", Integer.toString(mvStore.getCacheSize()));
-            add(session, rows,
-                    "info.CACHE_SIZE", Integer.toString(mvStore.getCacheSizeUsed()));
-            add(session, rows,
-                    "info.CACHE_HIT_RATIO", Integer.toString(mvStore.getCacheHitRatio()));
-            add(session, rows, "info.TOC_CACHE_HIT_RATIO",
-                    Integer.toString(mvStore.getTocCacheHitRatio()));
-            add(session, rows,
-                    "info.LEAF_RATIO", Integer.toString(mvStore.getLeafRatio()));
-        }
+        database.getStore().getMvStore().populateInfo((name, value) -> add(session, rows, name, value));
     }
 
     private void synonyms(SessionLocal session, ArrayList<Row> rows, String catalog) {
@@ -3194,10 +3145,7 @@ public final class InformationSchemaTable extends MetaTable {
             return session.getDatabase().getAllSchemas().size();
         case IN_DOUBT:
             if (session.getUser().isAdmin()) {
-                ArrayList<InDoubtTransaction> inDoubt = session.getDatabase().getInDoubtTransactions();
-                if (inDoubt != null) {
-                    return inDoubt.size();
-                }
+                return session.getDatabase().getInDoubtTransactions().size();
             }
             return 0L;
         case ROLES:

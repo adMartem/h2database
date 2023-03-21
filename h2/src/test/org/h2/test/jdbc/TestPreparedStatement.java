@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -11,6 +11,7 @@ import java.io.InputStream;
 import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.net.URL;
 import java.sql.Array;
 import java.sql.Connection;
@@ -88,6 +89,7 @@ public class TestPreparedStatement extends TestDb {
         testCancelReuse(conn);
         testCoalesce(conn);
         testPreparedStatementMetaData(conn);
+        testBigDecimal(conn);
         testDate(conn);
         testDate8(conn);
         testTime8(conn);
@@ -115,7 +117,9 @@ public class TestPreparedStatement extends TestDb {
         testColumnMetaDataWithEquals(conn);
         testColumnMetaDataWithIn(conn);
         testMultipleStatements(conn);
+        testParameterInSubquery(conn);
         testAfterRollback(conn);
+        testUnnestWithArrayParameter(conn);
         conn.close();
         testPreparedStatementWithLiteralsNone();
         testPreparedStatementWithIndexedParameterAndLiteralsNone();
@@ -393,6 +397,8 @@ public class TestPreparedStatement extends TestDb {
     private void testUnknownDataType(Connection conn) throws SQLException {
         assertThrows(ErrorCode.UNKNOWN_DATA_TYPE_1, conn).
             prepareStatement("SELECT * FROM (SELECT ? FROM DUAL)");
+        assertThrows(ErrorCode.UNKNOWN_DATA_TYPE_1, conn).
+            prepareStatement("VALUES BITAND(?, ?)");
         PreparedStatement prep = conn.prepareStatement("SELECT -?");
         prep.setInt(1, 1);
         execute(prep);
@@ -644,6 +650,21 @@ public class TestPreparedStatement extends TestDb {
         case 6:
             prep.setObject(1, value, H2Type.INTEGER, 0);
         }
+    }
+
+    private void testBigDecimal(Connection conn) throws SQLException {
+        PreparedStatement prep = conn.prepareStatement("SELECT ?, ?");
+        BigDecimal bd = new BigDecimal("12300").setScale(-2, RoundingMode.UNNECESSARY);
+        prep.setBigDecimal(1, bd);
+        prep.setObject(2, bd);
+        ResultSet rs = prep.executeQuery();
+        rs.next();
+        bd = rs.getBigDecimal(1);
+        assertEquals(12300, bd.intValue());
+        assertEquals(0, bd.scale());
+        bd = rs.getBigDecimal(2);
+        assertEquals(12300, bd.intValue());
+        assertEquals(0, bd.scale());
     }
 
     private void testDate(Connection conn) throws SQLException {
@@ -1705,6 +1726,30 @@ public class TestPreparedStatement extends TestDb {
         stmt.execute("DROP TABLE A, B");
     }
 
+    private void testParameterInSubquery(Connection conn) throws SQLException {
+        Statement stat = conn.createStatement();
+        stat.execute("CREATE TABLE T1(ID1 BIGINT PRIMARY KEY, S INT NOT NULL)");
+        stat.execute("CREATE TABLE T2(ID1 BIGINT REFERENCES T1, ID2 BIGINT)");
+
+        stat.executeUpdate("INSERT INTO T1(ID1, S) VALUES(1, 1), (2, 1)");
+        stat.executeUpdate("INSERT INTO T2(ID1, ID2) VALUES(1, 1), (2, 2)");
+
+        PreparedStatement query = conn.prepareStatement("SELECT ID2 FROM "
+                + "(SELECT * FROM T1 WHERE ID1 IN (SELECT ID1 FROM T2 WHERE ID2 = ?) AND S = ?) T1 "
+                + "JOIN T2 USING(ID1)");
+
+        query.setLong(1, 2L);
+        query.setInt(2, 1);
+        ResultSet rs = query.executeQuery();
+        rs.next();
+        assertEquals(2L, rs.getLong(1));
+        query.setLong(1, 1L);
+        rs = query.executeQuery();
+        rs.next();
+        assertEquals(1L, rs.getLong(1));
+        stat.execute("DROP TABLE T2, T1");
+    }
+
     private void testAfterRollback(Connection conn) throws SQLException {
         try (Statement stat = conn.createStatement()) {
             try {
@@ -1734,6 +1779,22 @@ public class TestPreparedStatement extends TestDb {
                 stat.execute("DROP TABLE IF EXISTS TEST");
                 conn.setAutoCommit(true);
             }
+        }
+    }
+
+    private void testUnnestWithArrayParameter(Connection conn) throws SQLException {
+        PreparedStatement prep = conn.prepareStatement(
+                "SELECT * FROM ("
+                + "SELECT * FROM UNNEST(CAST(? AS INTEGER ARRAY)) UNION SELECT * FROM UNNEST(CAST(? AS INTEGER ARRAY))"
+                + ") ORDER BY 1");
+        prep.setObject(1, new Integer[] {1, 2, 3});
+        prep.setObject(2, new Integer[] {3, 4, 5});
+        try (ResultSet rs = prep.executeQuery()) {
+            for (int i = 1; i <= 5; i++) {
+                assertTrue(rs.next());
+                assertEquals(i, rs.getInt(1));
+            }
+            assertFalse(rs.next());
         }
     }
 

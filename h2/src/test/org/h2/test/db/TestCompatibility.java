@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -148,16 +148,18 @@ public class TestCompatibility extends TestDb {
             stat.execute("SET MODE " + mode);
             ResultSet rs = stat.executeQuery("SELECT ID I FROM TEST");
             ResultSetMetaData meta = rs.getMetaData();
+            assertEquals(mode + " mode", "I", meta.getColumnLabel(1));
             String columnName = meta.getColumnName(1);
             String tableName = meta.getTableName(1);
-            if ("ID".equals(columnName) && "TEST".equals(tableName)) {
-                assertTrue(mode + " mode should not support columnAlias",
-                        columnAlias.contains(mode));
-            } else if ("I".equals(columnName) && tableName.equals("")) {
-                assertTrue(mode + " mode should support columnAlias",
-                        columnAlias.indexOf(mode) < 0);
+            String schemaName = meta.getSchemaName(1);
+            if (columnAlias.contains(mode)) {
+                assertEquals(mode + " mode", "ID", columnName);
+                assertEquals(mode + " mode", "TEST", tableName);
+                assertEquals(mode + " mode", "PUBLIC", schemaName);
             } else {
-                fail();
+                assertEquals(mode + " mode", "I", columnName);
+                assertEquals(mode + " mode", "", tableName);
+                assertEquals(mode + " mode", "", schemaName);
             }
         }
         stat.execute("DROP TABLE TEST");
@@ -318,6 +320,7 @@ public class TestCompatibility extends TestDb {
         stat.execute("DROP TABLE IF EXISTS TEST");
         stat.execute("CREATE TABLE `TEST`(ID INT PRIMARY KEY, NAME VARCHAR)");
         stat.execute("INSERT INTO TEST VALUES(1, 'Hello'), (2, 'World')");
+        assertResult(null, stat, "SELECT UNIX_TIMESTAMP(NULL)");
         assertResult("0", stat, "SELECT UNIX_TIMESTAMP('1970-01-01 00:00:00Z')");
         assertResult("1196418619", stat, "SELECT UNIX_TIMESTAMP('2007-11-30 10:30:19Z')");
         assertResult("1196418619", stat, "SELECT UNIX_TIMESTAMP(FROM_UNIXTIME(1196418619))");

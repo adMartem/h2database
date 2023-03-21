@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -63,7 +63,6 @@ import org.h2.value.lob.LobDataDatabase;
 
 /**
  * Helps recovering a corrupted database.
- * @h2.resource
  */
 public class Recover extends Tool implements DataHandler {
 
@@ -80,8 +79,9 @@ public class Recover extends Tool implements DataHandler {
     private boolean lobMaps;
 
     /**
-     * Options are case sensitive. Supported options are:
+     * Options are case sensitive.
      * <table>
+     * <caption>Supported options</caption>
      * <tr><td>[-help] or [-?]</td>
      * <td>Print the list of options</td></tr>
      * <tr><td>[-dir &lt;dir&gt;]</td>
@@ -94,9 +94,9 @@ public class Recover extends Tool implements DataHandler {
      * <td>Print the transaction log</td></tr>
      * </table>
      * Encrypted databases need to be decrypted first.
-     * @h2.resource
      *
      * @param args the command line arguments
+     * @throws SQLException on failure
      */
     public static void main(String... args) throws SQLException {
         new Recover().runTool(args);
@@ -112,6 +112,7 @@ public class Recover extends Tool implements DataHandler {
      * a hardware problem.
      *
      * @param args the command line arguments
+     * @throws SQLException on failure
      */
     @Override
     public void runTool(String... args) throws SQLException {
@@ -137,6 +138,11 @@ public class Recover extends Tool implements DataHandler {
 
     /**
      * INTERNAL
+     * @param conn to use
+     * @param lobId id of the LOB stream
+     * @param precision not used
+     * @return InputStream to read LOB content from
+     * @throws SQLException on failure
      */
     public static InputStream readBlobMap(Connection conn, long lobId,
             long precision) throws SQLException {
@@ -183,6 +189,11 @@ public class Recover extends Tool implements DataHandler {
 
     /**
      * INTERNAL
+     * @param conn to use
+     * @param lobId id of the LOB stream
+     * @param precision not used
+     * @return Reader to read LOB content from
+     * @throws SQLException on failure
      */
     public static Reader readClobMap(Connection conn, long lobId, long precision)
             throws Exception {
@@ -208,6 +219,7 @@ public class Recover extends Tool implements DataHandler {
      *
      * @param dir the directory
      * @param db the database name (null for all databases)
+     * @throws SQLException on failure
      */
     public static void execute(String dir, String db) throws SQLException {
         try {
@@ -392,7 +404,7 @@ public class Recover extends Tool implements DataHandler {
     }
 
     private static void dumpLayout(PrintWriter writer, MVStore mv) {
-        MVMap<String, String> layout = mv.getLayoutMap();
+        Map<String, String> layout = mv.getLayoutMap();
         for (Entry<String, String> e : layout.entrySet()) {
             writer.println("-- " + e.getKey() + " = " + e.getValue());
         }

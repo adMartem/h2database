@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -228,7 +228,9 @@ public abstract class DbObject implements HasSQL {
      * @param quotedName the quoted name
      * @return the SQL statement
      */
-    public abstract String getCreateSQLForCopy(Table table, String quotedName);
+    public String getCreateSQLForCopy(Table table, String quotedName) {
+        throw DbException.getInternalError(toString());
+    }
 
     /**
      * Construct the CREATE ... SQL statement for this object for meta table.

@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -136,6 +136,7 @@ public class JdbcUtils {
      * perform access rights checking, the system property h2.allowedClasses
      * needs to be set to a list of class file name prefixes.
      *
+     * @param <Z> generic return type
      * @param className the name of the class
      * @return the class object
      */
@@ -165,6 +166,7 @@ public class JdbcUtils {
             for (String s : allowedClassNamePrefixes) {
                 if (className.startsWith(s)) {
                     allowed = true;
+                    break;
                 }
             }
             if (!allowed) {
@@ -261,10 +263,11 @@ public class JdbcUtils {
      * @param user the user name
      * @param password the password
      * @return the database connection
+     * @throws SQLException on failure
      */
     public static Connection getConnection(String driver, String url,
             String user, String password) throws SQLException {
-        return getConnection(driver, url, user, password, null);
+        return getConnection(driver, url, user, password, null, false);
     }
 
     /**
@@ -275,12 +278,14 @@ public class JdbcUtils {
      * @param user the user name or {@code null}
      * @param password the password or {@code null}
      * @param networkConnectionInfo the network connection information, or {@code null}
+     * @param forbidCreation whether database creation is forbidden
      * @return the database connection
+     * @throws SQLException on failure
      */
     public static Connection getConnection(String driver, String url, String user, String password,
-            NetworkConnectionInfo networkConnectionInfo) throws SQLException {
+            NetworkConnectionInfo networkConnectionInfo, boolean forbidCreation) throws SQLException {
         if (url.startsWith(Constants.START_URL)) {
-            JdbcConnection connection = new JdbcConnection(url, null, user, password);
+            JdbcConnection connection = new JdbcConnection(url, null, user, password, forbidCreation);
             if (networkConnectionInfo != null) {
                 connection.getSession().setNetworkConnectionInfo(networkConnectionInfo);
             }
@@ -311,6 +316,9 @@ public class JdbcUtils {
                     }
                     throw new SQLException("Driver " + driver + " is not suitable for " + url, "08001");
                 } else if (javax.naming.Context.class.isAssignableFrom(d)) {
+                    if (!url.startsWith("java:")) {
+                        throw new SQLException("Only java scheme is supported for JNDI lookups", "08001");
+                    }
                     // JNDI context
                     Context context = (Context) d.getDeclaredConstructor().newInstance();
                     DataSource ds = (DataSource) context.lookup(url);
@@ -451,14 +459,11 @@ public class JdbcUtils {
     /**
      * Set a value as a parameter in a prepared statement.
      *
-     * @param prep
-     *            the prepared statement
-     * @param parameterIndex
-     *            the parameter index
-     * @param value
-     *            the value
-     * @param conn
-     *            the own connection
+     * @param prep the prepared statement
+     * @param parameterIndex the parameter index
+     * @param value the value
+     * @param conn the own connection
+     * @throws SQLException on failure
      */
     public static void set(PreparedStatement prep, int parameterIndex, Value value, JdbcConnection conn)
             throws SQLException {
@@ -611,6 +616,7 @@ public class JdbcUtils {
      * @param conn the connection
      * @param sql the SQL statement
      * @return the metadata
+     * @throws SQLException on failure
      */
     public static ResultSet getMetaResultSet(Connection conn, String sql)
             throws SQLException {

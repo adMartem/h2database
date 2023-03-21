@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -31,9 +31,9 @@ import org.h2.result.ResultTarget;
 import org.h2.result.SortOrder;
 import org.h2.table.Column;
 import org.h2.table.ColumnResolver;
+import org.h2.table.DerivedTable;
 import org.h2.table.Table;
 import org.h2.table.TableFilter;
-import org.h2.table.TableView;
 import org.h2.util.Utils;
 import org.h2.value.ExtTypeInfoRow;
 import org.h2.value.TypeInfo;
@@ -142,6 +142,7 @@ public abstract class Query extends Prepared {
     private long lastLimit;
     private long lastEvaluated;
     private ResultInterface lastResult;
+    private Boolean lastExists;
     private Value[] lastParameters;
     private boolean cacheableChecked;
     private boolean neverLazy;
@@ -205,6 +206,22 @@ public abstract class Query extends Prepared {
      * Initialize the query.
      */
     public abstract void init();
+
+    @Override
+    public final void prepare() {
+        if (!checkInit) {
+            throw DbException.getInternalError("not initialized");
+        }
+        if (isPrepared) {
+            return;
+        }
+        prepareExpressions();
+        preparePlan();
+    }
+
+    public abstract void prepareExpressions();
+
+    public abstract void preparePlan();
 
     /**
      * The the list of select expressions.
@@ -430,7 +447,8 @@ public abstract class Query extends Prepared {
         }
         for (int i = 0; i < params.length; i++) {
             Value a = lastParams[i], b = params[i];
-            if (a.getValueType() != b.getValueType() || !session.areEqual(a, b)) {
+            // Derived tables can have gaps in parameters
+            if (a != null && !a.equals(b)) {
                 return false;
             }
         }
@@ -445,8 +463,9 @@ public abstract class Query extends Prepared {
         int size = list.size();
         Value[] params = new Value[size];
         for (int i = 0; i < size; i++) {
-            Value v = list.get(i).getParamValue();
-            params[i] = v;
+            Parameter parameter = list.get(i);
+            // Derived tables can have gaps in parameters
+            params[i] = parameter != null ? parameter.getParamValue() : null;
         }
         return params;
     }
@@ -470,12 +489,12 @@ public abstract class Query extends Prepared {
             return queryWithoutCacheLazyCheck(limit, target);
         }
         fireBeforeSelectTriggers();
-        if (noCache || !session.getDatabase().getOptimizeReuseResults() ||
+        if (noCache || !getDatabase().getOptimizeReuseResults() ||
                 (session.isLazyQueryExecution() && !neverLazy)) {
             return queryWithoutCacheLazyCheck(limit, target);
         }
         Value[] params = getParameterValues();
-        long now = session.getDatabase().getModificationDataId();
+        long now = getDatabase().getModificationDataId();
         if (isEverything(ExpressionVisitor.DETERMINISTIC_VISITOR)) {
             if (lastResult != null && !lastResult.isClosed() &&
                     limit == lastLimit) {
@@ -492,7 +511,8 @@ public abstract class Query extends Prepared {
         closeLastResult();
         ResultInterface r = queryWithoutCacheLazyCheck(limit, target);
         lastResult = r;
-        this.lastEvaluated = now;
+        lastExists = null;
+        lastEvaluated = now;
         lastLimit = limit;
         return r;
     }
@@ -501,6 +521,45 @@ public abstract class Query extends Prepared {
         if (lastResult != null) {
             lastResult.close();
         }
+    }
+
+    /**
+     * Execute the EXISTS predicate over the query.
+     *
+     * @return EXISTS predicate result
+     */
+    public final boolean exists() {
+        if (isUnion()) {
+            // union doesn't always know the parameter list of the left and
+            // right queries
+            return executeExists();
+        }
+        fireBeforeSelectTriggers();
+        if (noCache || !getDatabase().getOptimizeReuseResults()) {
+            return executeExists();
+        }
+        Value[] params = getParameterValues();
+        long now = getDatabase().getModificationDataId();
+        if (isEverything(ExpressionVisitor.DETERMINISTIC_VISITOR)) {
+            if (lastExists != null) {
+                if (sameResultAsLast(params, lastParameters, lastEvaluated)) {
+                    return lastExists;
+                }
+            }
+        }
+        lastParameters = params;
+        boolean exists = executeExists();
+        lastExists = exists;
+        lastResult = null;
+        lastEvaluated = now;
+        return exists;
+    }
+
+    private boolean executeExists() {
+        ResultInterface r = queryWithoutCacheLazyCheck(1L, null);
+        boolean exists = r.hasNext();
+        r.close();
+        return exists;
     }
 
     /**
@@ -545,7 +604,7 @@ public abstract class Query extends Prepared {
      */
     int initExpression(ArrayList<String> expressionSQL, Expression e, boolean mustBeInResult,
             ArrayList<TableFilter> filters) {
-        Database db = session.getDatabase();
+        Database db = getDatabase();
         // special case: SELECT 1 AS A FROM DUAL ORDER BY A
         // (oracle supports it, but only in order by, not in group by and
         // not in having):
@@ -942,8 +1001,8 @@ public abstract class Query extends Prepared {
         if (!checkInit) {
             init();
         }
-        return TableView.createTempView(forCreateView ? session.getDatabase().getSystemSession() : session,
-                session.getUser(), alias, columnTemplates, this, topQuery);
+        return new DerivedTable(forCreateView ? getDatabase().getSystemSession() : session, alias,
+                columnTemplates, this, topQuery);
     }
 
     @Override

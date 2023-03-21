@@ -1,5 +1,5 @@
 /*
- * Copyright 2004-2021 H2 Group. Multiple-Licensed under the MPL 2.0,
+ * Copyright 2004-2023 H2 Group. Multiple-Licensed under the MPL 2.0,
  * and the EPL 1.0 (https://h2database.com/html/license.html).
  * Initial Developer: H2 Group
  */
@@ -146,7 +146,7 @@ public class TableLinkConnection {
     /**
      * Specify if the autocommit mode is activated or not
      *
-     * @param mode
+     * @param mode to set
      */
     public void setAutoCommit(boolean mode) {
         this.autocommit= mode;
@@ -154,7 +154,7 @@ public class TableLinkConnection {
 
     /**
      * The autocommit mode
-     * @return
+     * @return true if autocommit is on
      */
     public boolean getAutocommit(){
         return autocommit;
