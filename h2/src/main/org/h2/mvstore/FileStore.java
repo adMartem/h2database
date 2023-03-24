@@ -126,6 +126,7 @@ public class FileStore {
      * @param encryptionKey the encryption key, or null if encryption is not
      *            used
      */
+    @SuppressWarnings("unchecked")
     public void open(String fileName, boolean readOnly, char[] encryptionKey) {
         if (file != null) {
             return;

@@ -43,6 +43,7 @@ public class AbbaDetector {
      * @param o the object, or null for the current class
      * @return the object that was passed
      */
+    @SuppressWarnings("deprecation")
     public static Object begin(Object o) {
         if (o == null) {
             o = new SecurityManager() {

@@ -64,7 +64,7 @@ public class WriterThread implements Runnable {
             Driver.setThreadContextClassLoader(writer.thread);
             writer.thread.setDaemon(true);
             return writer;
-        } catch (AccessControlException e) {
+        } catch (Exception e) {
             // // Google App Engine does not allow threads
             return null;
         }

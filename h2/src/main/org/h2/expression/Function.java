@@ -582,7 +582,7 @@ public class Function extends Expression implements FunctionCall {
         }
     }
 
-    private static strictfp double log10(double value) {
+    private static double log10(double value) {
         return roundMagic(StrictMath.log(value) / StrictMath.log(10));
     }
 
