@@ -9,18 +9,42 @@
 plugins {
     id 'java'
     id 'eclipse'
+    id "org.gradlex.extra-java-module-info" version "1.3"
+}
+// add module information for all direct and transitive dependencies that are not modules
+extraJavaModuleInfo {
+
+    failOnMissingModuleInfo.set(false)    
+    
+    knownModule("org.slf4j:slf4j-api", "org.slf4j.api")
+    
+    automaticModule("javax.servlet:javax.servlet-api", "p3cobol.javax.servlet.api")
+    automaticModule("org.apache.lucene:lucene-core", "p3cobol.lucene.core")
+    automaticModule("org.osgi:org.osgi.core", "p3cobol.osgi.core")
+    automaticModule("org.osgi:org.osgi.enterprise", "p3cobol.osgi.enterprise")
+    automaticModule("org.locationtech.jts:jts-core", "p3cobol.jts.core")
+
+    /*
+    module("commons-cli:commons-cli", "org.apache.commons.cli") {
+        exports("org.apache.commons.cli")
+    }
+    module("commons-collections:commons-collections", "org.apache.commons.collections")
+    automaticModule("commons-logging:commons-logging", "org.apache.commons.logging")
+    */
 }
 
-dependencies {
-    implementation('javax.servlet:javax.servlet-api:3.1.0') { transitive = false }
+dependencies { 
+
+    /** Sl4j */
+    implementation('org.slf4j:slf4j-api:2.0.7') { transitive = false }
+    
     implementation('org.apache.lucene:lucene-core:3.6.2') { transitive = false }
-    implementation('org.slf4j:slf4j-api:1.6.0')  { transitive = false }
+    implementation('javax.servlet:javax.servlet-api:3.1.0') { transitive = false }
     compileOnly('org.osgi:org.osgi.core:4.2.0') { transitive = false }
     compileOnly('org.osgi:org.osgi.enterprise:4.2.0') { transitive = false }
     implementation('org.locationtech.jts:jts-core:1.16.0') { transitive = false }
 
     testImplementation fileTree(dir: 'h2/ext')
-    testImplementation group: 'junit', name: 'junit', version: '4.+'
 }
 
 sourceSets {
@@ -40,6 +64,13 @@ sourceSets {
             srcDirs 'h2/src/tools/org/h2/jaqu'
         }
     }
+}
+
+compileJava {
+    options.compilerArgs << '-XDignore.symbol.file' // remove warnings for deprecated and unsafe packages/methods
+    options.fork = true
+    //options.forkOptions.executable = 'javac'
+    options.release = 17                            // compile for object version 17 regardless of the Gradle JVM (only Java 10+)
 }
 
 eclipse {
