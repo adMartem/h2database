@@ -5,14 +5,19 @@
  */
 package org.h2.mvstore;
 
+<<<<<<< HEAD
 import static org.h2.engine.Constants.MEMORY_POINTER;
 
+=======
+import java.io.IOException;
+>>>>>>> Isolated_putMultiple_changes
 import java.util.AbstractList;
 import java.util.AbstractMap;
 import java.util.AbstractSet;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
@@ -22,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.h2.mvstore.type.DataType;
 import org.h2.mvstore.type.ObjectDataType;
 import org.h2.util.MemoryEstimator;
+
+import com.turrettech.p3cobol.lib.files.h2mv.P3KeyType;
 
 /**
  * A stored map.
@@ -146,7 +153,239 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
     @Override
     public V put(K key, V value) {
         DataUtils.checkArgument(value != null, "The value may not be null");
+<<<<<<< HEAD
         return operate(key, value, DecisionMaker.PUT);
+=======
+        beforeWrite();
+        long v = writeVersion;
+        Page p = root.copy(v);
+        p = splitRootIfNeeded(p, v);
+        Object result = put(p, v, key, value);
+        newRoot(p);
+        return (V) result;
+    }
+
+    /**
+     * Adds a list of unique key-value pairs to the map.
+     * <p>
+     * This is intended to be used to initially populate a map as efficiently as possible, such as in the case of bulk loading
+     * a map migrated from some other data source. It may be used to add key-value pairs to an existing map, however, if none of the
+     * keys to be appended already exist in the map.
+     * <p>
+     * Prior to insertion, the list may be sorted in ascending or descending key order to maximize the efficiency of the insertion and minimize the number of write versions produced.
+     * Consecutive insertions are made at the leaf level until a split is needed,
+     * the key is outside constraining values for that leaf page, or the insertion list is exhausted.
+     * If the list is not completely processed, the process is repeated
+     * after returning to this method where the write version is advanced and the tree traversed anew.
+     *
+     * @param keyValueList the list of key-value's to be added (must be non-null and non-empty)
+     * @param valueFactory the factory instance that will wrap the values before insertion (null if wrapping not needed)
+     */
+    public <F extends ValueFactory<V>, L extends KeyValueList<KeyValue<K,?>>> void bulkAdd(L keyValueList, F valueFactory) {
+        boolean isFinished;
+        DataUtils.checkArgument(!keyValueList.isEmpty(), "The keyValueList must have at least one KeyValue");
+        ListIterator<KeyValue<K,?>> i = keyValueList.listIterator();
+	    do {
+	        synchronized (this) {
+		    	beforeWrite();
+		    	long v = writeVersion;
+		        Page p = root.copy(v);
+		        p = splitRootIfNeeded(p, v);
+		        isFinished = addContiguous(p, v, null, null, null, i, valueFactory);
+		        newRoot(p);
+	        }
+        } while (!isFinished && i.hasNext());
+    }
+
+    /**
+     * Add or replace a key-value pair in a branch.
+     *
+     * @param root the root page
+     * @param key the key (may not be null)
+     * @param value the value (may not be null)
+     * @return the new root page
+     */
+    synchronized Page putBranch(Page root, K key, V value) {
+        DataUtils.checkArgument(value != null, "The value may not be null");
+        long v = writeVersion;
+        Page p = root.copy(v);
+        p = splitRootIfNeeded(p, v);
+        put(p, v, key, value);
+        return p;
+    }
+
+    /**
+     * Split the root page if necessary.
+     *
+     * @param p the page
+     * @param writeVersion the write version
+     * @return the new sibling
+     */
+    protected Page splitRootIfNeeded(Page p, long writeVersion) {
+        if (p.getMemory() <= store.getPageSplitSize() || p.getKeyCount() <= 1) {
+            return p;
+        }
+        int at = p.getKeyCount() / 2;
+        long totalCount = p.getTotalCount();
+        Object k = p.getKey(at);
+        Page split = p.split(at);
+        Object[] keys = { k };
+        Page.PageReference[] children = {
+                new Page.PageReference(p, p.getPos(), p.getTotalCount()),
+                new Page.PageReference(split, split.getPos(), split.getTotalCount()),
+        };
+        p = Page.create(this, writeVersion,
+                keys, null,
+                children,
+                totalCount, 0);
+        return p;
+    }
+
+    /**
+     * Add or update a key-value pair.
+     *
+     * @param p the page
+     * @param writeVersion the write version
+     * @param key the key (may not be null)
+     * @param value the value (may not be null)
+     * @return the old value, or null
+     */
+    protected Object put(Page p, long writeVersion, Object key, Object value) {
+        int index = p.binarySearch(key);
+        if (p.isLeaf()) {
+            if (index < 0) {
+                index = -index - 1;
+                p.insertLeaf(index, key, value);
+                return null;
+            }
+            return p.setValue(index, value);
+        }
+        // p is a node
+        if (index < 0) {
+            index = -index - 1;
+        } else {
+            index++;
+        }
+        Page c = p.getChildPage(index).copy(writeVersion);
+        if (c.getMemory() > store.getPageSplitSize() && c.getKeyCount() > 1) {
+            // split on the way down
+            int at = c.getKeyCount() / 2;
+            Object k = c.getKey(at);
+            Page split = c.split(at);
+            p.setChild(index, split);
+            p.insertNode(index, k, c);
+            // now we are not sure where to add
+            return put(p, writeVersion, key, value);
+        }
+        Object result = put(c, writeVersion, key, value);
+        p.setChild(index, c);
+        return result;
+>>>>>>> Isolated_putMultiple_changes
+    }
+
+    /**
+     * From the provided list, find the first key leaf page and add as many key-values to the leaf as practicable.
+     * <p>
+     * @param page the page we are passing through
+     * @param writeVersion the write version to use
+     * @param initialKeyValue the first key to be added, followed by the balance of the list, or the entire list if null
+     * @param lowerLimitKey is the key that constrains the addition to greater than this value (null if no lower constraint)
+     * @param upperLimitKey is the key that constrains the addition to less than this value (null if no upper constraint)
+     * @param keyValueListIterator an <code>Iterator</code> on the key-value list to be added
+     * @param valueFactory the factory instance to wrap the key-list values before insertion (or null if no wrapping desired)
+     * @return <code>true</code> if list has been fully added, otherwise <code>false</code> to re-start after reaching the top-level method
+     */
+    @SuppressWarnings("unchecked")
+	protected boolean addContiguous(Page page, long writeVersion, KeyValue<K,?> initialKeyValue, K lowerLimitKey, K upperLimitKey, ListIterator<KeyValue<K,?>> keyValueListIterator, ValueFactory<V> valueFactory) {
+        boolean isFinished = false;
+        if (initialKeyValue == null) {
+	        initialKeyValue = keyValueListIterator.next();
+        }
+        int index = page.binarySearch(initialKeyValue.getKey());
+        if (page.isLeaf()) {
+        	// at the leaf; time to insert
+            if (index < 0) {
+            	// not found; this is the insertion point
+                index = -index - 1;
+                if (valueFactory != null) {
+                	page.insertLeaf(index, initialKeyValue.getKey(), valueFactory.newInstance(initialKeyValue.getValue()));
+                } else {
+                	page.insertLeaf(index, initialKeyValue.getKey(), initialKeyValue.getValue());
+                }
+            	while (keyValueListIterator.hasNext()) {
+                    if (page.getMemory() > store.getPageSplitSize() && page.getKeyCount() > 1) {
+                    	// indicate split needed; we are not yet done
+                    	return false;
+                    }
+                    KeyValue<K,?> keyValue = keyValueListIterator.next();
+                    K thisKey = keyValue.getKey();
+                    if (upperLimitKey != null && ((compare(thisKey, upperLimitKey) >= 0))) {
+                    	// this key is higher than limiting key; forget this insertion and bubble to the top
+                    	keyValueListIterator.previous();
+                    	return false;
+                    } else if ((lowerLimitKey != null && (compare(thisKey, lowerLimitKey) <= 0))) {
+                    	// this key lower than the limiting key; ; forget this insertion and bubble to the top
+                    	keyValueListIterator.previous();
+                    	return false;
+                    }
+                    // find the insertion point for this key
+                    index = page.binarySearch(thisKey);
+                    if (index < 0) {
+                    	index = -index - 1;
+                    } else {
+                        // key was found; this cannot happen
+                        throw DataUtils.newIllegalStateException(
+                                DataUtils.ERROR_INTERNAL,
+                                "Leaf page for this key should not exist");
+                    }
+                    // key is in the interval between lower and upper key limits and fits here
+                    if (valueFactory != null) {
+                    	page.insertLeaf(index, thisKey, valueFactory.newInstance(keyValue.getValue()));
+                    } else {
+                    	page.insertLeaf(index, thisKey, keyValue.getValue());
+                    }
+                }
+                return true;
+            }
+            // key was found; this cannot happen
+            throw DataUtils.newIllegalStateException(
+                    DataUtils.ERROR_INTERNAL,
+                    "Leaf page for this key should not exist");
+        }
+        // p is a node, not a leaf
+        if (index < 0) {
+            index = -index - 1;
+        } else {
+            // key was found; this cannot happen
+            throw DataUtils.newIllegalStateException(
+                    DataUtils.ERROR_INTERNAL,
+                    "Node containing this key should not exist");
+        }
+    	// adjust the limits if acceptable key value is further constrained
+        if (page.getKeyCount() > index) {
+        	// limit is next higher key
+        	upperLimitKey = (K) page.getKey(index);
+        }
+    	if (index > 0) {
+    		// limit is the lower key upper limit
+    		lowerLimitKey = (K) page.getKey(index - 1);
+    	}
+        Page childPage = page.getChildPage(index).copy(writeVersion);
+        if (childPage.getMemory() > store.getPageSplitSize() && childPage.getKeyCount() > 1) {
+            // split on the way down
+            int midPoint = childPage.getKeyCount() / 2;
+            Object midKey = childPage.getKey(midPoint);
+            Page newChildPage = childPage.split(midPoint);
+            page.setChild(index, newChildPage);
+            page.insertNode(index, midKey, childPage);
+            // now we are not sure where to add
+            isFinished = addContiguous(page, writeVersion, initialKeyValue, lowerLimitKey, upperLimitKey, keyValueListIterator, valueFactory);
+        } else {
+        	// child page has room
+	        isFinished = addContiguous(childPage, writeVersion, initialKeyValue, lowerLimitKey, upperLimitKey, keyValueListIterator, valueFactory);
+	        page.setChild(index, childPage);
+        }
+        return isFinished;
     }
 
     /**
@@ -1435,6 +1674,24 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
     @Override
     public final String toString() {
         return asString(null);
+    }
+
+    public static interface ValueFactory<V> {
+    	V newInstance(Object value);
+    }
+
+    public static interface KeyValueFactory<KV> {
+    	KeyValue<?, ?> newInstance(KV keyValue);
+    }
+
+    public static interface KeyValue<K,V> {
+    	K getKey();
+    	V getValue();
+    }
+
+    public static interface KeyValueList<KV extends KeyValue<?, ?>> extends List<KV> {
+    	void sort() throws Exception;
+    	boolean assertSorted();
     }
 
     /**
