@@ -18,6 +18,9 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.NonWritableChannelException;
+import java.nio.file.CopyOption;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -90,10 +93,13 @@ public class FilePathDisk extends FilePath {
                     name + " (not found)",
                     newName.name);
         }
-        // Java 7: use java.nio.file.Files.move(Path source, Path target,
-        //     CopyOption... options)
-        // with CopyOptions "REPLACE_EXISTING" and "ATOMIC_MOVE".
         if (atomicReplace) {
+//        	try {
+//        		Files.move(newFile.toPath(), oldFile.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+//        	} catch (IOException e) {
+//        		throw DbException.get(ErrorCode.FILE_RENAME_FAILED_2,
+//                        new String[]{name, newName.name});
+//        	}  FIXME: this should be used here!
             boolean ok = oldFile.renameTo(newFile);
             if (ok) {
                 return;

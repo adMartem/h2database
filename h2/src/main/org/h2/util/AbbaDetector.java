@@ -43,12 +43,9 @@ public class AbbaDetector {
      * @param o the object, or null for the current class
      * @return the object that was passed
      */
-    @SuppressWarnings("deprecation")
     public static Object begin(Object o) {
         if (o == null) {
-            o = new SecurityManager() {
-                Class<?> clazz = getClassContext()[2];
-            }.clazz;
+            o = getCallerClass(2);
         }
         Deque<Object> stack = STACK.get();
         if (!stack.isEmpty()) {
@@ -77,6 +74,13 @@ public class AbbaDetector {
         }
         stack.push(o);
         return o;
+    }
+	
+    static Class<?> getCallerClass(int depth) {
+        return StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
+                .walk(frames -> frames.skip(depth).findFirst())
+                .map(StackWalker.StackFrame::getDeclaringClass)
+                .orElse(null);
     }
 
     private static Object getTest(Object o) {
