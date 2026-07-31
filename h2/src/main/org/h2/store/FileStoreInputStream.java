@@ -7,6 +7,8 @@ package org.h2.store;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.ref.Cleaner;
+import java.util.concurrent.atomic.AtomicReference;
 import org.h2.engine.Constants;
 import org.h2.message.DbException;
 import org.h2.mvstore.DataUtils;
@@ -17,12 +19,17 @@ import org.h2.tools.CompressTool;
  */
 public class FileStoreInputStream extends InputStream {
 
+    private static final Cleaner CLEANER = Cleaner.create();
+
     private FileStore store;
     private final Data page;
     private int remainingInBuffer;
     private final CompressTool compress;
     private boolean endOfFile;
     private final boolean alwaysClose;
+    private final StoreCleanup storeCleanup;
+    @SuppressWarnings("unused") // retained so the cleaner action stays registered
+    private final Cleaner.Cleanable storeCleanable;
 
     public FileStoreInputStream(FileStore store, DataHandler handler,
             boolean compression, boolean alwaysClose) {
@@ -34,6 +41,8 @@ public class FileStoreInputStream extends InputStream {
             compress = null;
         }
         page = Data.create(handler, Constants.FILE_BLOCK_SIZE);
+        this.storeCleanup = new StoreCleanup(store);
+        this.storeCleanable = CLEANER.register(this, storeCleanup);
         try {
             if (store.length() <= FileStore.HEADER_LENGTH) {
                 close();
@@ -137,13 +146,33 @@ public class FileStoreInputStream extends InputStream {
                 endOfFile = true;
             } finally {
                 store = null;
+                storeCleanup.disarm();
             }
         }
     }
 
-    @Override
-    protected void finalize() {
-        close();
+    /**
+     * Closes the underlying {@link FileStore} when the stream becomes
+     * phantom-reachable. Must not retain the stream instance.
+     */
+    static final class StoreCleanup implements Runnable {
+        private final AtomicReference<FileStore> storeRef;
+
+        StoreCleanup(FileStore store) {
+            this.storeRef = new AtomicReference<>(store);
+        }
+
+        void disarm() {
+            storeRef.set(null);
+        }
+
+        @Override
+        public void run() {
+            FileStore s = storeRef.getAndSet(null);
+            if (s != null) {
+                s.close();
+            }
+        }
     }
 
     @Override

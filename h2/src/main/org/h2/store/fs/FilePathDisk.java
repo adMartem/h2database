@@ -330,8 +330,8 @@ public class FilePathDisk extends FilePath {
     }
 
     /**
-     * Call the garbage collection and run finalization. This close all files
-     * that were not closed, and are no longer referenced.
+     * Call the garbage collector. This may close files that were not closed
+     * and are no longer referenced (via Cleaner actions).
      */
     static void freeMemoryAndFinalize() {
         IOUtils.trace("freeMemoryAndFinalize", null, null);
@@ -340,7 +340,6 @@ public class FilePathDisk extends FilePath {
         for (int i = 0; i < 16; i++) {
             rt.gc();
             long now = rt.freeMemory();
-            rt.runFinalization();
             if (now == mem) {
                 break;
             }
