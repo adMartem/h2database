@@ -33,8 +33,14 @@ import org.h2.mvstore.tx.TransactionStore;
  */
 public final class P3Volume {
 
-    /** Matches historical {@code P3Store.VOLUME_VERSION}. */
-    public static final int VOLUME_VERSION = 1;
+    /**
+     * P3 logical volume version stamped in {@link #VOLUME_VERSION_MAP}.
+     * <ul>
+     *   <li>1 – 17.1/25.0-era volumes (H2 MVStore format 1)</li>
+     *   <li>2 – H2 2.4 baseline volumes (MVStore format 3), after Phase 2 rewrite</li>
+     * </ul>
+     */
+    public static final int VOLUME_VERSION = 2;
 
     public static final String VOLUME_VERSION_MAP = "p3.volume_version";
 
