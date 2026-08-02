@@ -4,6 +4,7 @@
 /.project
 /dist/
 /build/
+/.gradle/
 /nbproject/
 /data/
 /error.lock

@@ -1540,6 +1540,22 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
     }
 
     /**
+     * Key/value pair used by P3 bulk load helpers (Phase 1c will prefer append).
+     */
+    public interface KeyValue<K, V> {
+        K getKey();
+        V getValue();
+    }
+
+    /**
+     * Sortable list of {@link KeyValue} entries for committed bulk insert.
+     */
+    public interface KeyValueList<KV extends KeyValue<?, ?>> extends java.util.List<KV> {
+        void sort() throws Exception;
+        boolean assertSorted();
+    }
+
+    /**
      * A builder for this class.
      *
      * @param <K> the key type
