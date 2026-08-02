@@ -347,6 +347,20 @@ public final class TransactionMap<K, V> extends AbstractMap<K,V> {
         return result;
     }
 
+    /**
+     * Insert or replace many committed entries without per-key undo logging.
+     * Phase 1b correctness path; Phase 1c may replace empty-map loads with append.
+     *
+     * @param keyValueList sorted or unsorted list of key/value pairs
+     */
+    public <L extends java.util.List<? extends org.h2.mvstore.MVMap.KeyValue<K, ?>>> void addCommitted(L keyValueList) {
+        for (org.h2.mvstore.MVMap.KeyValue<K, ?> keyValue : keyValueList) {
+            @SuppressWarnings("unchecked")
+            V value = (V) keyValue.getValue();
+            putCommitted(keyValue.getKey(), value);
+        }
+    }
+
     private V set(K key, V value) {
         txDecisionMaker.initialize(key, value);
         return set(key, txDecisionMaker, -1);

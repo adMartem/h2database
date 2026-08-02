@@ -1,0 +1,93 @@
+/**
+ * NOTE: H2 can now build itself using the gradle java build. It is imported in the p3cobol parent project
+ * and shadowed when building the p3cobol-library.
+ * This project builds a full distribution jar of H2 that is compatible with the p3cobol shadowed
+ * portion used for the indexed file storage manager.  This must be used if an H2 database is to
+ * be accessed by both the indexed file system and as a SQL database.
+ *
+ * Baseline: upstream H2 2.4.249-SNAPSHOT (master tip) + P3 glue (P3Builder, volume smoke).
+ */
+
+plugins {
+    id 'java'
+    id 'eclipse'
+}
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.release = 25
+}
+
+dependencies {
+    // Match h2/pom.xml compile dependencies (2.4.x)
+    implementation('javax.servlet:javax.servlet-api:4.0.1') { transitive = false }
+    implementation('jakarta.servlet:jakarta.servlet-api:5.0.0') { transitive = false }
+    implementation('org.apache.lucene:lucene-core:9.7.0') { transitive = false }
+    implementation('org.apache.lucene:lucene-analysis-common:9.7.0') { transitive = false }
+    implementation('org.apache.lucene:lucene-queryparser:9.7.0') { transitive = false }
+    implementation('org.slf4j:slf4j-api:2.0.7') { transitive = false }
+    implementation('org.locationtech.jts:jts-core:1.19.0') { transitive = false }
+
+    compileOnly('org.osgi:org.osgi.core:6.0.0') { transitive = false }
+    compileOnly('org.osgi:org.osgi.enterprise:5.0.0') { transitive = false }
+    compileOnly('org.osgi:org.osgi.service.jdbc:1.1.0') { transitive = false }
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs 'h2/src/main'
+            // Optional OSGi integration; published Maven build covers these.
+            // org.osgi.service.jdbc 1.1.0 from Maven Central lacks OSGI_JDBC_CAPABILITY*.
+            exclude '**/OsgiDataSourceFactory.java'
+            exclude '**/DbDriverActivator.java'
+        }
+        resources {
+            srcDirs 'h2/src/main'
+            exclude '**/*.java'
+            exclude '**/package.html'
+            exclude '**/package-info.java'
+        }
+    }
+    test {
+        java {
+            // Phase 1a gate only; full upstream suite is not the product gate.
+            srcDirs 'src/test/java'
+        }
+    }
+}
+
+eclipse {
+    classpath {
+        sourceSets = [sourceSets.main]
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    // Upstream H2 test suite is huge and not the Phase 1a gate.
+    filter {
+        includeTestsMatching 'org.h2.mvstore.p3.*'
+    }
+}
+
+jar {
+    manifest {
+        attributes provider: 'Gradle Build',
+                'Implementation-Title': 'H2 (P3/COBOL) Database System',
+                'Implementation-Version': project.version,
+                'Main-Class': 'org.h2.tools.Console'
+    }
+}
