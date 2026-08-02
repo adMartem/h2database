@@ -618,7 +618,12 @@ public class MVMap<K, V> extends AbstractMap<K, V> implements ConcurrentMap<K, V
         return valueType;
     }
 
-    boolean isSingleWriter() {
+    /**
+     * Whether this map was opened for single-writer append mode.
+     *
+     * @return true if {@link Builder#singleWriter()} was used
+     */
+    public boolean isSingleWriter() {
         return singleWriter;
     }
 

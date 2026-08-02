@@ -348,16 +348,42 @@ public final class TransactionMap<K, V> extends AbstractMap<K,V> {
     }
 
     /**
-     * Insert or replace many committed entries without per-key undo logging.
-     * Phase 1b correctness path; Phase 1c may replace empty-map loads with append.
+     * Append a committed value without undo logging. The key must be strictly
+     * greater than any existing key. Requires {@link MVMap.Builder#singleWriter()}.
      *
-     * @param keyValueList sorted or unsorted list of key/value pairs
+     * @param key the key
+     * @param value the value (not null)
+     */
+    public void appendCommitted(K key, V value) {
+        DataUtils.checkArgument(value != null, "The value may not be null");
+        map.append(key, VersionedValueCommitted.getInstance(value));
+    }
+
+    /**
+     * Insert or replace many committed entries without per-key undo logging.
+     * When the underlying map is {@code singleWriter} and empty, entries are
+     * loaded via {@link #appendCommitted} (caller must supply ascending keys).
+     * Otherwise falls back to {@link #putCommitted}.
+     *
+     * @param keyValueList key/value pairs (sorted ascending for the append path)
      */
     public <L extends java.util.List<? extends org.h2.mvstore.MVMap.KeyValue<K, ?>>> void addCommitted(L keyValueList) {
+        boolean useAppend = map.isSingleWriter();
+        if (useAppend) {
+            map.flushAndGetRoot();
+            useAppend = map.sizeAsLong() == 0;
+        }
         for (org.h2.mvstore.MVMap.KeyValue<K, ?> keyValue : keyValueList) {
             @SuppressWarnings("unchecked")
             V value = (V) keyValue.getValue();
-            putCommitted(keyValue.getKey(), value);
+            if (useAppend) {
+                appendCommitted(keyValue.getKey(), value);
+            } else {
+                putCommitted(keyValue.getKey(), value);
+            }
+        }
+        if (map.isSingleWriter()) {
+            map.flushAndGetRoot();
         }
     }
 
