@@ -85,9 +85,9 @@ tasks.named('test') {
 
 jar {
     manifest {
-        attributes provider: 'Gradle Build',
-                'Implementation-Title': 'H2 (P3/COBOL) Database System',
+        attributes 'Implementation-Title': 'H2 Database Engine',
                 'Implementation-Version': project.version,
-                'Main-Class': 'org.h2.tools.Console'
+                'Main-Class': 'org.h2.tools.Console',
+                'License': 'MPL 2.0 or EPL 1.0. See LICENSES in the P3/COBOL distribution.'
     }
 }
